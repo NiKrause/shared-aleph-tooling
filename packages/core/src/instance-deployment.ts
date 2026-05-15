@@ -7,8 +7,7 @@ import type {
 } from '@shared-aleph/shared-types'
 
 import { broadcastAlephMessage } from './broadcast.ts'
-
-export const DEFAULT_ALEPH_CHANNEL = 'TEST'
+import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
 export const SSH_PUBLIC_KEY_PATTERN =
   /^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]+={0,3}(?:\s+.+)?$/
 

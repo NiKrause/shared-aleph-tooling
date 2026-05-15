@@ -1,0 +1,1 @@
+export const DEFAULT_ALEPH_CHANNEL = 'TEST'

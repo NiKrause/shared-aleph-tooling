@@ -6,10 +6,10 @@ import type {
 } from '@shared-aleph/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, type JsonFetchLike, signAlephMessage } from './broadcast.ts'
+import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
 import { forgetAlephMessages } from './forget.ts'
 
 export const SUCCESSFUL_DEPLOYMENTS_AGGREGATE_KEY = 'uc-go-peer-successful-deployments'
-export const DEFAULT_ALEPH_CHANNEL = 'TEST'
 
 export interface RetentionRecord {
   instance_item_hash: string

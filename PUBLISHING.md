@@ -50,8 +50,8 @@ The first publish-prep pass surfaced concrete blockers we still need to solve:
    output
 4. `@shared-aleph/node` still needs a clean dev-vs-publish strategy for
    consuming `@shared-aleph/core`
-5. the shared `core` barrel currently has repeated `DEFAULT_ALEPH_CHANNEL`
-   exports that need cleanup before declaration builds
+5. the shared `core` barrel cleanup work has started, but declaration-build
+   compatibility is still not complete
 
 These are good next engineering tasks, but they are not fully solved yet, so
 the publish-first packages should remain private for now.

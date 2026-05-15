@@ -1,8 +1,7 @@
 import type { AlephBroadcastMessage, MessageHasher, MessageSigner } from '@shared-aleph/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, type JsonFetchLike, signAlephMessage } from './broadcast.ts'
-
-export const DEFAULT_ALEPH_CHANNEL = 'TEST'
+import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
 
 function asOptionalReason(value: string | undefined): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined

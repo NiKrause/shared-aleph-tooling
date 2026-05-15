@@ -10,6 +10,7 @@ import type {
 } from '@shared-aleph/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, signAlephMessage, type JsonFetchLike } from './broadcast.ts'
+import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
 import {
   fetchPortForwardAggregate,
   mergePortFlagMaps,
@@ -17,8 +18,6 @@ import {
   requestedPortFlags,
   requiredInstancePortForwards
 } from './port-forwarding.ts'
-
-export const DEFAULT_ALEPH_CHANNEL = 'TEST'
 
 export function createPortForwardAggregateContent(args: {
   sender: string
