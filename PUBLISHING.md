@@ -22,7 +22,7 @@ public packages.
 ## Current Gaps Before Publishing
 
 1. Finalize npm scope and package visibility.
-2. Decide the public license for the standalone repo.
+2. Confirm the public license for the standalone repo.
 3. Add final repository metadata after the GitHub repo exists.
 4. Decide versioning strategy:
    - one version for all packages
@@ -86,7 +86,7 @@ The concrete GitHub repo and first-push checklist lives in
 ## Suggested Release Order
 
 1. Create the standalone GitHub repository.
-2. Set the final package metadata and license.
+2. Set the final package metadata and confirm the license.
 3. Push the release workflow with the standalone repo as source of truth.
 4. Add npm authentication secrets to the new repo.
 5. Run the workflow once in `dry_run` mode and inspect tarballs.

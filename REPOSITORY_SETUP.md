@@ -95,7 +95,7 @@ Recommended before real publish:
 
 ## Final Metadata To Set Before First Public Release
 
-- final `license`
+- final repository URL metadata
 - final GitHub repository URL
 - `homepage`
 - `bugs` URL

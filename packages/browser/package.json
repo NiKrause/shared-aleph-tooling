@@ -1,6 +1,7 @@
 {
   "name": "@shared-aleph/browser",
   "version": "0.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -11,4 +12,3 @@
     "lint": "echo \"browser lint placeholder\""
   }
 }
-

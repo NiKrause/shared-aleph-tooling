@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "description": "Shared Aleph VM deployment, rootfs, and automation tooling monorepo.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20"

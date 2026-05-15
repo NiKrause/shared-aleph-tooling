@@ -2,7 +2,7 @@
   "name": "@shared-aleph/core",
   "version": "0.1.0",
   "description": "Reusable Aleph deployment, runtime, and guest lifecycle logic.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

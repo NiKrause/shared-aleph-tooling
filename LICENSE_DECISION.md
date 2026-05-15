@@ -1,8 +1,8 @@
 # License Decision Notes
 
-The repository currently uses `UNLICENSED` as a safe placeholder.
+The repository now uses `MIT` as the default license.
 
-Before the first public npm release, choose and apply the real license.
+This was chosen as the practical default for the first shared public release.
 
 ## Practical Options
 
@@ -33,20 +33,23 @@ Use this if:
 - the package scope and long-term governance are still unclear
 - you want one dry-run release cycle before opening the repo publicly
 
-## Recommendation
+## Selected Default
 
-If the plan is to publish npm packages for outside use, the most practical
-default choice is:
+For `shared-aleph-tooling`, the selected default is:
 
-- `MIT` for simplicity
+- `MIT`
 
-If you prefer a slightly more formal permissive option:
+Why:
 
-- `Apache-2.0`
+- simplest path for early reuse
+- lowest friction for UC and future external consumers
+- good fit for shared SDK, workflow, and action tooling
+
+`Apache-2.0` is still a reasonable future alternative if explicit patent
+language becomes important later.
 
 ## After Choosing
 
-1. add the `LICENSE` file
-2. update the root `package.json`
-3. update the publish-first package manifests if needed
-4. rerun `pnpm release:preview`
+1. keep the `LICENSE` file in sync with the repo metadata
+2. update the final public repository URL in package manifests
+3. rerun `pnpm release:preview` after any metadata changes

@@ -2,7 +2,7 @@
   "name": "@shared-aleph/shared-types",
   "version": "0.1.0",
   "description": "Shared type contracts for the shared Aleph tooling monorepo.",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",

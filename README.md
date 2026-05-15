@@ -107,7 +107,7 @@ Current blockers:
 - package entrypoints still point at source files instead of a dedicated publish
   build output
 - release automation and npm credentials are not configured yet
-- the final license and public repository URL still need to be decided
+- the final public repository URL still needs to be added to package metadata
 
 The tracked publishing checklist lives in [`PUBLISHING.md`](./PUBLISHING.md).
 The GitHub repo and first-push checklist lives in
