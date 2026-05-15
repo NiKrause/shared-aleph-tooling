@@ -38,19 +38,15 @@ async function readJson(path) {
 }
 
 function runCommand(command, args, cwd, env = process.env) {
-  const cleanEnv = {
-    PATH: env.PATH,
-    HOME: env.HOME,
-    SHELL: env.SHELL,
-    TERM: env.TERM,
-    npm_config_cache: join(repoRoot, '.npm-cache'),
-    NODE_AUTH_TOKEN: env.NODE_AUTH_TOKEN
+  const commandEnv = {
+    ...env,
+    npm_config_cache: join(repoRoot, '.npm-cache')
   }
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: cleanEnv,
+      env: commandEnv,
       stdio: 'inherit'
     })
 
