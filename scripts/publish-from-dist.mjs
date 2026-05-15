@@ -1,0 +1,93 @@
+import { access, readFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { join } from 'node:path'
+import process from 'node:process'
+import { spawn } from 'node:child_process'
+
+const repoRoot = process.cwd()
+
+const targets = ['shared-types', 'core', 'node']
+
+function parseArgs(argv) {
+  const options = {
+    dryRun: false,
+    tag: 'latest'
+  }
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === '--dry-run') {
+      options.dryRun = true
+      continue
+    }
+    if (arg === '--tag') {
+      options.tag = argv[index + 1] ?? 'latest'
+      index += 1
+    }
+  }
+
+  return options
+}
+
+async function ensureFile(path) {
+  await access(path, constants.F_OK)
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(path, 'utf8'))
+}
+
+function runCommand(command, args, cwd, env = process.env) {
+  const cleanEnv = {
+    PATH: env.PATH,
+    HOME: env.HOME,
+    SHELL: env.SHELL,
+    TERM: env.TERM,
+    npm_config_cache: join(repoRoot, '.npm-cache'),
+    NODE_AUTH_TOKEN: env.NODE_AUTH_TOKEN
+  }
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: cleanEnv,
+      stdio: 'inherit'
+    })
+
+    child.on('exit', (code) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(new Error(`${command} ${args.join(' ')} failed with exit code ${code ?? 'unknown'}`))
+      }
+    })
+
+    child.on('error', reject)
+  })
+}
+
+async function main() {
+  const options = parseArgs(process.argv.slice(2))
+
+  for (const target of targets) {
+    const distDir = join(repoRoot, 'packages', target, 'dist')
+    const manifestPath = join(distDir, 'package.json')
+    await ensureFile(manifestPath)
+    const manifest = await readJson(manifestPath)
+
+    console.log(`Preparing ${manifest.name}@${manifest.version} from ${distDir}`)
+
+    if (options.dryRun) {
+      await runCommand('npm', ['pack'], distDir)
+      continue
+    }
+
+    await runCommand(
+      'npm',
+      ['publish', '--access', 'public', '--provenance', '--tag', options.tag],
+      distDir
+    )
+  }
+}
+
+await main()

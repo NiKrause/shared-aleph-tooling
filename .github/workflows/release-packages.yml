@@ -1,0 +1,76 @@
+name: Release Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run npm pack instead of npm publish
+        required: false
+        default: true
+        type: boolean
+      npm_tag:
+        description: npm dist-tag to publish under when dry_run is false
+        required: false
+        default: next
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Build publishable artifacts
+        run: pnpm publish:prepare
+
+      - name: Pack dist packages
+        if: ${{ inputs.dry_run }}
+        run: node ./scripts/publish-from-dist.mjs --dry-run --tag "${{ inputs.npm_tag }}"
+
+      - name: Upload dry-run tarballs
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-tarballs
+          path: |
+            packages/shared-types/dist/*.tgz
+            packages/core/dist/*.tgz
+            packages/node/dist/*.tgz
+
+      - name: Verify npm token is configured
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "NPM_TOKEN secret is required for publishing." >&2
+            exit 1
+          fi
+
+      - name: Publish dist packages
+        if: ${{ !inputs.dry_run }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node ./scripts/publish-from-dist.mjs --tag "${{ inputs.npm_tag }}"

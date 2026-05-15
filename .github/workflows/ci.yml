@@ -27,5 +27,8 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Verify publish preview build
+        run: pnpm build:publishable
+
       - name: Build docs
         run: pnpm docs:build

@@ -6,4 +6,4 @@ coverage
 .docusaurus
 build
 .pnpm-store
-
+.npm-cache

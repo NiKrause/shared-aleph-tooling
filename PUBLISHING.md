@@ -24,14 +24,11 @@ public packages.
 1. Finalize npm scope and package visibility.
 2. Decide the public license for the standalone repo.
 3. Add final repository metadata after the GitHub repo exists.
-4. Replace the current source-oriented dev entrypoints with publishable `dist/`
-   output entrypoints.
-5. Define any additional subpath exports that consumers need.
-6. Add a release workflow for npm publishing.
-7. Decide versioning strategy:
+4. Decide versioning strategy:
    - one version for all packages
    - or independent package versions
-8. Add changelog and release-note generation.
+5. Add changelog and release-note generation.
+6. Add npm credentials and provenance-enabled publishing secrets to GitHub.
 
 ## Recommended Packaging Approach
 
@@ -63,31 +60,37 @@ packages away from their current source-first `main` and `types` fields.
 That keeps the workspace source-first while still proving a realistic npm
 publish artifact shape.
 
-## Confirmed Technical Blockers
+The repo also now contains:
 
-The first publish-prep pass surfaced concrete blockers we still need to solve:
+- `pnpm release:preview`
+- `.github/workflows/release-packages.yml`
+- `scripts/publish-from-dist.mjs`
 
-1. many source files currently import sibling modules with `.ts` suffixes
-2. declaration builds fail on those `.ts` import specifiers
-3. local tests currently rely on source-first execution, not built package
-   output
-4. `@shared-aleph/node` still needs a clean dev-vs-publish strategy for
-   consuming `@shared-aleph/core`
-5. the shared `core` barrel cleanup work has started, but declaration-build
-   compatibility is still not complete
+That means the release path is prepared even though public publishing is not yet
+enabled.
 
-These are good next engineering tasks, but they are not fully solved yet, so
-the publish-first packages should remain private for now.
+## Current Status
+
+The publish preview path is now working for:
+
+- `@shared-aleph/shared-types`
+- `@shared-aleph/core`
+- `@shared-aleph/node`
+
+The packages remain private in source form for now, but the preview release
+artifacts and dist-local package manifests build successfully.
 
 ## Suggested Release Order
 
 1. Create the standalone GitHub repository.
 2. Set the final package metadata and license.
-3. Add npm authentication secrets to the new repo.
-4. Publish `@shared-aleph/shared-types`.
-5. Publish `@shared-aleph/core`.
-6. Publish `@shared-aleph/node`.
-7. Update `universal-connectivity` to consume the published packages.
+3. Push the release workflow with the standalone repo as source of truth.
+4. Add npm authentication secrets to the new repo.
+5. Run the workflow once in `dry_run` mode and inspect tarballs.
+6. Publish `@shared-aleph/shared-types`.
+7. Publish `@shared-aleph/core`.
+8. Publish `@shared-aleph/node`.
+9. Update `universal-connectivity` to consume the published packages.
 
 ## What Not To Publish Yet
 
