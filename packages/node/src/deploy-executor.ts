@@ -265,6 +265,15 @@ export async function executeDeployPlan(
       )
     }
 
+    if (candidateCrn.address) {
+      log(`[deploy] notifying CRN allocation endpoint ${candidateCrn.address}`)
+      await notifyCrnAllocation({
+        crnUrl: candidateCrn.address,
+        itemHash: deployment.itemHash,
+        fetch: fetchImpl
+      }).catch(() => null)
+    }
+
     log(`[deploy] waiting for runtime networking on ${candidateCrn.name ?? candidateCrn.hash}`)
     const runtime = await waitForVmRuntime({
       itemHash: deployment.itemHash,
@@ -335,14 +344,6 @@ export async function executeDeployPlan(
     let configuration: DeployOutputResult['configuration'] = null
     let verification: DeployOutputResult['verification'] = null
 
-    if (runtime.selectedCrn?.address) {
-      log(`[deploy] notifying CRN allocation endpoint ${runtime.selectedCrn.address}`)
-      await notifyCrnAllocation({
-        crnUrl: runtime.selectedCrn.address,
-        itemHash: deployment.itemHash,
-        fetch: fetchImpl
-      }).catch(() => null)
-    }
 
     if (runtime.hostIpv4 && plan.autoConfigure !== false && plan.profile === 'uc-go-peer') {
       const mappedPorts = runtime.mappedPorts ?? {}

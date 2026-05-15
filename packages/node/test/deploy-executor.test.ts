@@ -161,6 +161,11 @@ test('executeDeployPlan deploys, publishes port forwards, and waits for processi
   assert.equal(result.runtime?.setupHealth?.ok, true)
   assert.equal(result.configuration?.metadata?.peer_id, '12D3KooW...')
   assert.ok(calls.some((entry) => entry.includes('/api/v0/aggregates/0x1234.json')))
+  const notifyIndex = calls.findIndex((entry) => entry.includes('/control/allocation/notify'))
+  const runtimeIndex = calls.findIndex((entry) => entry.includes('/v2/about/executions/list'))
+  assert.notEqual(notifyIndex, -1)
+  assert.notEqual(runtimeIndex, -1)
+  assert.ok(notifyIndex < runtimeIndex)
 })
 
 test('executeDeployPlan retries on a rejected first CRN and succeeds on the next candidate', async () => {
