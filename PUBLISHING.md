@@ -24,8 +24,9 @@ public packages.
 1. Finalize npm scope and package visibility.
 2. Decide the public license for the standalone repo.
 3. Add final repository metadata after the GitHub repo exists.
-4. Replace source-file entrypoints with publishable build outputs.
-5. Define package `exports` explicitly.
+4. Replace the current source-oriented dev entrypoints with publishable `dist/`
+   output entrypoints.
+5. Define any additional subpath exports that consumers need.
 6. Add a release workflow for npm publishing.
 7. Decide versioning strategy:
    - one version for all packages
@@ -38,6 +39,22 @@ public packages.
 - keep scaffold packages private until they have stable contracts
 - generate publishable files into `dist/`
 - point `main`, `module`, `types`, and `exports` to `dist/`
+
+## Confirmed Technical Blockers
+
+The first publish-prep pass surfaced concrete blockers we still need to solve:
+
+1. many source files currently import sibling modules with `.ts` suffixes
+2. declaration builds fail on those `.ts` import specifiers
+3. local tests currently rely on source-first execution, not built package
+   output
+4. `@shared-aleph/node` still needs a clean dev-vs-publish strategy for
+   consuming `@shared-aleph/core`
+5. the shared `core` barrel currently has repeated `DEFAULT_ALEPH_CHANNEL`
+   exports that need cleanup before declaration builds
+
+These are good next engineering tasks, but they are not fully solved yet, so
+the publish-first packages should remain private for now.
 
 ## Suggested Release Order
 

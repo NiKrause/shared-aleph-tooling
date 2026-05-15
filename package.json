@@ -8,6 +8,10 @@
   "engines": {
     "node": ">=20"
   },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2"
+  },
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm --filter @shared-aleph/core test && pnpm --filter @shared-aleph/shared-types test && pnpm --filter @shared-aleph/node test",
