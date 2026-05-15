@@ -80,6 +80,9 @@ The publish preview path is now working for:
 The packages remain private in source form for now, but the preview release
 artifacts and dist-local package manifests build successfully.
 
+The concrete GitHub repo and first-push checklist lives in
+[`REPOSITORY_SETUP.md`](./REPOSITORY_SETUP.md).
+
 ## Suggested Release Order
 
 1. Create the standalone GitHub repository.

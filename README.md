@@ -91,7 +91,7 @@ shared-aleph-tooling/
 
 1. Extract reusable rootfs logic into `@shared-aleph/rootfs`.
 2. Replace the placeholder reusable workflow with the real shared pipeline.
-3. Split this directory into its own standalone git repository.
+3. Push the standalone repo to GitHub and wire the first release workflow run.
 4. Make `universal-connectivity` consume the shared repo through a real external
    reference instead of a local relative path.
 
@@ -110,3 +110,5 @@ Current blockers:
 - the final license and public repository URL still need to be decided
 
 The tracked publishing checklist lives in [`PUBLISHING.md`](./PUBLISHING.md).
+The GitHub repo and first-push checklist lives in
+[`REPOSITORY_SETUP.md`](./REPOSITORY_SETUP.md).
