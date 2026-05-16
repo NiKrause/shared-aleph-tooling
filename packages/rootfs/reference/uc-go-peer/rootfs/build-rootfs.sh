@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ALEPH_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROJECT_DIR="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+PROJECT_DIR="${PROJECT_DIR:-$(cd "${SCRIPT_DIR}/../../.." && pwd)}"
 OUT_DIR="${OUT_DIR:-${ALEPH_DIR}/dist-rootfs}"
 ROOTFS_CONTRACT_FILE="${ROOTFS_CONTRACT_FILE:-${ALEPH_DIR}/root-profiles/uc-go-peer.json}"
 ROOTFS_BUILD_DRIVER="${ROOTFS_BUILD_DRIVER:-auto}"
