@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 
@@ -204,14 +205,30 @@ export function contractShellEnv(contract: RootfsContract, contractPath = ''): R
   }
 }
 
+function resolveReferencePath(profile: string, suffix = ''): string {
+  const candidates = [
+    new URL(`../reference/${profile}/${suffix}`, import.meta.url),
+    new URL(`./reference/${profile}/${suffix}`, import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    const resolved = fileURLToPath(candidate)
+    if (existsSync(resolved)) {
+      return resolved
+    }
+  }
+
+  return fileURLToPath(candidates[0])
+}
+
 export function referenceProfileRoot(profile: string): string {
-  return fileURLToPath(new URL(`../reference/${profile}/`, import.meta.url))
+  return resolveReferencePath(profile)
 }
 
 export function referenceProfileContractPath(profile: string): string {
-  return fileURLToPath(new URL(`../reference/${profile}/contract.json`, import.meta.url))
+  return resolveReferencePath(profile, 'contract.json')
 }
 
 export function referenceProfileRootfsDir(profile: string): string {
-  return fileURLToPath(new URL(`../reference/${profile}/rootfs/`, import.meta.url))
+  return resolveReferencePath(profile, 'rootfs/')
 }

@@ -88,6 +88,14 @@ async function main() {
 
     const readmePath = join(packageRoot, 'README.md')
     await cp(readmePath, join(distDir, 'README.md'))
+
+    if (target.dir === 'rootfs') {
+      await cp(join(packageRoot, 'reference'), join(distDir, 'reference'), { recursive: true })
+    }
+
+    if (target.dir === 'node') {
+      await cp(join(packagesDir, 'rootfs', 'reference'), join(distDir, 'reference'), { recursive: true })
+    }
   }
 }
 
