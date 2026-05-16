@@ -48,7 +48,8 @@ mkdir -p "${OUT_DIR}"
 echo "Building uc-go-peer image in prebaked mode"
 
 if [ ! -f "${BASE_IMAGE}" ]; then
-  curl -L "${BASE_URL}" -o "${BASE_IMAGE}"
+  echo "Downloading base image from ${BASE_URL}"
+  curl --fail --show-error --location     --retry 5     --retry-all-errors     --retry-delay 5     --connect-timeout 20     --max-time 300     "${BASE_URL}" -o "${BASE_IMAGE}"
 fi
 
 cp "${BASE_IMAGE}" "${IMAGE}"
