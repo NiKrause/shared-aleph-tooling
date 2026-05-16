@@ -103,24 +103,24 @@ jobs:
 
     steps:
       - name: Checkout caller repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: ${{ inputs.project_checkout_path }}
 
       - name: Checkout shared aleph tooling
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: ${{ inputs.tooling_repository }}
           ref: ${{ inputs.tooling_ref }}
           path: ${{ inputs.tooling_checkout_path }}
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10
 
       - name: Set up Node
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: '24.x'
           cache: pnpm
