@@ -65,7 +65,7 @@ export function createRootfsManifest(
     requiredPortForwards: contract.ports,
     rootfsSizeMiB: plan.rootfsSizeMiB,
     createdAt: options.createdAt ?? new Date().toISOString(),
-    notes: contract.manifest.notes,
+    notes: contract.manifest.notes ?? "",
   };
 
   if (

@@ -165,12 +165,12 @@ export async function runRootfsMode(
   throw new Error(`Unsupported ALEPH_VM_MODE "${mode}" in shared rootfs runner.`);
 }
 
-export async function main(): Promise<void> {
+export async function rootfsMain(): Promise<void> {
   await runRootfsMode(process.env);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  main().catch((error) => {
+  rootfsMain().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     process.exitCode = 1;
