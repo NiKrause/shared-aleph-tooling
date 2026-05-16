@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
@@ -162,4 +163,16 @@ export async function runRootfsMode(
   }
 
   throw new Error(`Unsupported ALEPH_VM_MODE "${mode}" in shared rootfs runner.`);
+}
+
+export async function main(): Promise<void> {
+  await runRootfsMode(process.env);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(message);
+    process.exitCode = 1;
+  });
 }

@@ -13,19 +13,190 @@ on:
         default: false
         type: boolean
       deploy_vm:
-        description: Whether to deploy a VM from the published rootfs
+        description: Reserved for future shared VM deployment wiring
         required: false
         default: false
         type: boolean
+      rootfs_version:
+        description: Optional explicit version override for the generated rootfs manifest
+        required: false
+        default: ''
+        type: string
+      rootfs_contract_path:
+        description: Path to the rootfs contract inside the caller repository
+        required: false
+        default: go-peer/aleph/root-profiles/uc-go-peer.json
+        type: string
+      rootfs_driver:
+        description: Rootfs build driver preference
+        required: false
+        default: auto
+        type: string
+      project_checkout_path:
+        description: Checkout path for the caller repository
+        required: false
+        default: project
+        type: string
+      tooling_checkout_path:
+        description: Checkout path for shared-aleph-tooling
+        required: false
+        default: shared-aleph-tooling
+        type: string
+      tooling_repository:
+        description: Repository that contains the shared tooling source
+        required: false
+        default: NiKrause/shared-aleph-tooling
+        type: string
+      tooling_ref:
+        description: Ref of the shared tooling repository to checkout
+        required: false
+        default: main
+        type: string
+    secrets:
+      ALEPH_PRIVATE_KEY:
+        required: false
+    outputs:
+      rootfs_version:
+        description: Derived or supplied rootfs version
+        value: ${{ jobs.build-rootfs.outputs.rootfs_version }}
+      rootfs_manifest_path:
+        description: Workspace path to the generated rootfs manifest
+        value: ${{ jobs.build-rootfs.outputs.rootfs_manifest_path }}
+      rootfs_manifest_copy_target_path:
+        description: Workspace path to the copied latest manifest when configured
+        value: ${{ jobs.build-rootfs.outputs.rootfs_manifest_copy_target_path }}
+      rootfs_manifest_versioned_path:
+        description: Workspace path to the copied versioned manifest when configured
+        value: ${{ jobs.build-rootfs.outputs.rootfs_manifest_versioned_path }}
+      rootfs_image_path:
+        description: Workspace path to the generated qcow2 image
+        value: ${{ jobs.build-rootfs.outputs.rootfs_image_path }}
+      rootfs_execution_mode:
+        description: Selected rootfs execution mode
+        value: ${{ jobs.build-rootfs.outputs.rootfs_execution_mode }}
+      rootfs_cid:
+        description: Published IPFS CID for the rootfs image
+        value: ${{ jobs.build-rootfs.outputs.rootfs_cid }}
+      rootfs_item_hash:
+        description: Aleph STORE item hash for the published rootfs image
+        value: ${{ jobs.build-rootfs.outputs.rootfs_item_hash }}
+      rootfs_source_size_bytes:
+        description: Source image size reported by the IPFS add endpoint
+        value: ${{ jobs.build-rootfs.outputs.rootfs_source_size_bytes }}
+
+permissions:
+  contents: read
 
 jobs:
-  placeholder:
+  build-rootfs:
     runs-on: ubuntu-24.04
-    steps:
-      - name: Placeholder
-        run: |
-          echo "Shared reusable workflow scaffold"
-          echo "profile=${{ inputs.profile }}"
-          echo "publish=${{ inputs.publish }}"
-          echo "deploy_vm=${{ inputs.deploy_vm }}"
+    outputs:
+      rootfs_version: ${{ steps.run_rootfs.outputs.rootfs_version }}
+      rootfs_manifest_path: ${{ steps.run_rootfs.outputs.rootfs_manifest_path }}
+      rootfs_manifest_copy_target_path: ${{ steps.run_rootfs.outputs.rootfs_manifest_copy_target_path }}
+      rootfs_manifest_versioned_path: ${{ steps.run_rootfs.outputs.rootfs_manifest_versioned_path }}
+      rootfs_image_path: ${{ steps.run_rootfs.outputs.rootfs_image_path }}
+      rootfs_execution_mode: ${{ steps.run_rootfs.outputs.rootfs_execution_mode }}
+      rootfs_cid: ${{ steps.run_rootfs.outputs.rootfs_cid }}
+      rootfs_item_hash: ${{ steps.run_rootfs.outputs.rootfs_item_hash }}
+      rootfs_source_size_bytes: ${{ steps.run_rootfs.outputs.rootfs_source_size_bytes }}
 
+    steps:
+      - name: Checkout caller repository
+        uses: actions/checkout@v5
+        with:
+          path: ${{ inputs.project_checkout_path }}
+
+      - name: Checkout shared aleph tooling
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.tooling_repository }}
+          ref: ${{ inputs.tooling_ref }}
+          path: ${{ inputs.tooling_checkout_path }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24.x'
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.tooling_checkout_path }}/pnpm-lock.yaml
+
+      - name: Install shared tooling workspace dependencies
+        working-directory: ${{ inputs.tooling_checkout_path }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate shared workflow inputs
+        run: |
+          if [[ "${{ inputs.deploy_vm }}" == "true" ]]; then
+            echo "deploy_vm=true is not wired into the shared reusable workflow yet. Use the shared deploy action separately for now." >&2
+            exit 1
+          fi
+          if [[ "${{ inputs.publish }}" == "true" && -z "${{ secrets.ALEPH_PRIVATE_KEY }}" ]]; then
+            echo "publish=true requires the ALEPH_PRIVATE_KEY secret." >&2
+            exit 1
+          fi
+
+      - name: Install rootfs build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            curl \
+            libguestfs-tools \
+            libsecp256k1-dev \
+            python3 \
+            python3-pip \
+            qemu-utils \
+            squashfs-tools \
+            tar
+
+      - name: Install aleph client
+        if: ${{ inputs.publish }}
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install aleph-client
+          python3 -m pip install pycares==4.11.0
+
+      - name: Prepare Aleph account
+        if: ${{ inputs.publish }}
+        env:
+          ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
+        run: |
+          mkdir -p "$HOME/.aleph-im/private-keys"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
+          if private_key.startswith("0x"):
+              private_key = private_key[2:]
+
+          key_bytes = bytes.fromhex(private_key)
+          config_home = Path.home() / ".aleph-im"
+          key_path = config_home / "private-keys" / "aleph-vm.key"
+          config_path = config_home / "config.json"
+
+          key_path.write_bytes(key_bytes)
+          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
+          print(f"Wrote Aleph key to {key_path}")
+          print(f"Wrote Aleph config to {config_path}")
+          PY
+
+      - name: Run shared rootfs publish pipeline
+        id: run_rootfs
+        working-directory: ${{ inputs.tooling_checkout_path }}
+        env:
+          ALEPH_VM_MODE: rootfs-publish
+          ALEPH_ROOTFS_PROJECT_DIR: ${{ github.workspace }}/${{ inputs.project_checkout_path }}
+          ALEPH_ROOTFS_CONTRACT_PATH: ${{ github.workspace }}/${{ inputs.project_checkout_path }}/${{ inputs.rootfs_contract_path }}
+          ALEPH_ROOTFS_REFERENCE_ROOTFS_DIR: ${{ github.workspace }}/${{ inputs.tooling_checkout_path }}/packages/rootfs/reference/${{ inputs.profile }}/rootfs
+          ALEPH_ROOTFS_DRIVER: ${{ inputs.rootfs_driver }}
+          ALEPH_ROOTFS_VERSION: ${{ inputs.rootfs_version }}
+          ALEPH_ROOTFS_SKIP_UPLOAD: ${{ inputs.publish && 'false' || 'true' }}
+        run: |
+          node ./packages/node/src/rootfs-runner.ts
