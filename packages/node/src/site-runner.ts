@@ -28,12 +28,17 @@ async function runCapture(command: string, args: string[], options: { cwd?: stri
   })
 }
 
-function parseLastJsonObject(text: string): Record<string, unknown> {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+export function parseLastJsonObject(text: string): Record<string, unknown> {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const line = lines[index]
-    if (!line.startsWith('{')) continue
-    return JSON.parse(line) as Record<string, unknown>
+    const candidate = lines[index]?.trimStart() ?? ''
+    if (!candidate.startsWith('{')) continue
+    const suffix = lines.slice(index).join('\n')
+    try {
+      return JSON.parse(suffix) as Record<string, unknown>
+    } catch {
+      // Keep scanning upward until we find a complete trailing JSON object.
+    }
   }
   throw new Error(`Could not parse JSON object from output: ${text}`)
 }

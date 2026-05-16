@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { runBootstrapEnvMode, runProbeMode } from "../src/site-runner.ts"
+import { parseLastJsonObject, runBootstrapEnvMode, runProbeMode } from "../src/site-runner.ts"
 
 async function createOutputEnv(prefix: string) {
   const dir = await mkdtemp(join(tmpdir(), prefix))
@@ -52,4 +52,9 @@ test('runProbeMode merges unique probe addresses and emits outputs', async () =>
   assert.match(outputs, /ok=true/)
   assert.match(outputs, /merged_multiaddrs_json=/)
   assert.match(outputs, /dns4\/example.com/)
+})
+
+test('parseLastJsonObject parses multiline trailing JSON output', () => {
+  const payload = parseLastJsonObject('prefix\n{\n  "item_hash": "abc123",\n  "content": {\n    "item_hash": "QmExample"\n  }\n}')
+  assert.equal(payload.item_hash, 'abc123')
 })
