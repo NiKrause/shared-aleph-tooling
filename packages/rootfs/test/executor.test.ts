@@ -25,7 +25,7 @@ test('createRootfsScriptCommand runs the shared build-rootfs script with UC-comp
   const command = createRootfsScriptCommand(plan, '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs');
 
   assert.deepEqual(command, {
-    command: 'bash',
+    command: '/bin/bash',
     args: ['/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh'],
     workdir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
     env: {
@@ -95,7 +95,7 @@ test('buildRootfs executes prepare and run commands from the selected execution 
         '-v', '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs:/workspace/shared-rootfs',
         '-w', '/workspace/shared-rootfs',
         'uc-go-peer-rootfs-builder:local',
-        'bash', '/workspace/shared-rootfs/build-rootfs-image.sh',
+        '/bin/bash', '/workspace/shared-rootfs/build-rootfs-image.sh',
       ],
     },
   ]);
@@ -127,7 +127,7 @@ test('publishRootfs runs the shared build-rootfs script and finalizes publish ar
   });
 
   assert.deepEqual(commands, [
-    'bash /workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh',
+    '/bin/bash /workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh',
   ]);
   assert.equal(result.finalized.manifest.rootfsCid, 'bafyrootfs');
   assert.equal(result.finalized.manifest.rootfsItemHash, 'store-item-hash');

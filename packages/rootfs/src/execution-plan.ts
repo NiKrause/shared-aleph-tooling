@@ -62,7 +62,7 @@ export function createHostRootfsExecutionPlan(
     reason: 'Using host virt-customize/qemu-img toolchain.',
     referenceRootfsDir,
     runCommand: {
-      command: 'bash',
+      command: '/bin/bash',
       args: [path.join(referenceRootfsDir, 'build-rootfs-image.sh')],
       workdir: referenceRootfsDir,
       env: {
@@ -130,7 +130,7 @@ export function createDockerRootfsExecutionPlan(
         '-w',
         rootfsMountPath,
         dockerImageTag,
-        'bash',
+        '/bin/bash',
         path.posix.join(rootfsMountPath, 'build-rootfs-image.sh'),
       ],
     },

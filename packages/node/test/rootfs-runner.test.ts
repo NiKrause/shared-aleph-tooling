@@ -197,7 +197,7 @@ test('runRootfsMode executes rootfs-publish and emits outputs', async () => {
           mode: 'docker',
           reason: 'test',
           referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
-          runCommand: { command: 'bash', args: ['build-rootfs.sh'] },
+          runCommand: { command: '/bin/bash', args: ['build-rootfs.sh'] },
         },
         publicationArtifacts: {
           ipfsAddResponsePath: '/tmp/ipfs-add-response.jsonl',

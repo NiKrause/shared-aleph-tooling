@@ -48,7 +48,7 @@ function rootfsScriptDir(buildPlan: RootfsBuildPlan, override?: string): string 
 export function createRootfsScriptCommand(buildPlan: RootfsBuildPlan, referenceRootfsDir?: string): RootfsExecutedCommand {
   const scriptDir = rootfsScriptDir(buildPlan, referenceRootfsDir);
   return {
-    command: 'bash',
+    command: '/bin/bash',
     args: [path.join(scriptDir, 'build-rootfs.sh')],
     workdir: scriptDir,
     env: rootfsBuildShellEnv(buildPlan),

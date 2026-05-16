@@ -27,7 +27,7 @@ test('createHostRootfsExecutionPlan runs the shared build script with UC-compati
   });
 
   assert.equal(execution.mode, 'host');
-  assert.equal(execution.runCommand.command, 'bash');
+  assert.equal(execution.runCommand.command, '/bin/bash');
   assert.deepEqual(execution.runCommand.args, [
     '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs-image.sh',
   ]);
@@ -75,7 +75,7 @@ test('createDockerRootfsExecutionPlan mirrors the current Dockerized rootfs buil
     '-w',
     '/workspace/shared-rootfs',
     'uc-go-peer-rootfs-builder:local',
-    'bash',
+    '/bin/bash',
     '/workspace/shared-rootfs/build-rootfs-image.sh',
   ]);
 });
