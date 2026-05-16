@@ -29,6 +29,7 @@ test('createRootfsScriptCommand runs the shared build-rootfs script with UC-comp
     args: ['/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh'],
     workdir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
     env: {
+      PROJECT_DIR: '/workspace/universal-connectivity',
       OUT_DIR: '/workspace/universal-connectivity/go-peer/aleph/dist-rootfs',
       ROOTFS_CONTRACT_FILE: '/workspace/universal-connectivity/go-peer/aleph/root-profiles/uc-go-peer.json',
       ROOTFS_BUILD_DRIVER: 'auto',

@@ -52,6 +52,7 @@ test('rootfsBuildShellEnv emits UC-compatible builder variables', async () => {
   })
 
   const env = rootfsBuildShellEnv(plan)
+  assert.equal(env.PROJECT_DIR, '/workspace/universal-connectivity')
   assert.equal(env.ROOTFS_BUILD_DRIVER, 'docker')
   assert.equal(env.ROOTFS_SIZE_MIB, '40960')
   assert.equal(env.ROOTFS_IMAGE_SIZE, '40G')

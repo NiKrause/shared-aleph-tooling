@@ -127,6 +127,7 @@ export function createRootfsBuildPlan(contract: RootfsContract, options: RootfsB
 
 export function rootfsBuildShellEnv(plan: RootfsBuildPlan): Record<string, string> {
   return {
+    PROJECT_DIR: plan.projectDir,
     OUT_DIR: plan.outDir,
     ROOTFS_CONTRACT_FILE: plan.contractPath,
     ROOTFS_BUILD_DRIVER: plan.driver,
