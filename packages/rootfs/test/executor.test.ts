@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  buildRootfs,
+  createRootfsBuildPlan,
+  createRootfsScriptCommand,
+  publishRootfs,
+  readRootfsContractFile,
+  referenceProfileContractPath,
+} from "../src/index.ts";
+
+async function loadPlan(driver: 'auto' | 'host' | 'docker' = 'auto', skipUpload = false) {
+  const contract = await readRootfsContractFile(referenceProfileContractPath('uc-go-peer'));
+  return createRootfsBuildPlan(contract, {
+    projectDir: '/workspace/universal-connectivity',
+    rootfsVersion: 'uc-go-peer-git-20260516-deadbee',
+    driver,
+    skipUpload,
+  });
+}
+
+test('createRootfsScriptCommand runs the shared build-rootfs script with UC-compatible env', async () => {
+  const plan = await loadPlan('auto');
+  const command = createRootfsScriptCommand(plan, '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs');
+
+  assert.deepEqual(command, {
+    command: 'bash',
+    args: ['/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh'],
+    workdir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+    env: {
+      OUT_DIR: '/workspace/universal-connectivity/go-peer/aleph/dist-rootfs',
+      ROOTFS_CONTRACT_FILE: '/workspace/universal-connectivity/go-peer/aleph/root-profiles/uc-go-peer.json',
+      ROOTFS_BUILD_DRIVER: 'auto',
+      ROOTFS_SIZE_MIB: '20480',
+      ROOTFS_IMAGE_SIZE: '20G',
+      ROOTFS_VERSION: 'uc-go-peer-git-20260516-deadbee',
+      CHANNEL: 'ALEPH-CLOUDSOLUTIONS',
+      SKIP_UPLOAD: '0',
+      SKIP_BUILD: '0',
+      IPFS_ADD_URL: 'https://ipfs.aleph.cloud/api/v0/add',
+      IPFS_GATEWAY_URL: 'https://ipfs.aleph.cloud/ipfs',
+      ALEPH_API_HOST: 'https://api2.aleph.im',
+      ALEPH_MESSAGE_WAIT_ATTEMPTS: '60',
+      ALEPH_MESSAGE_WAIT_DELAY_SECONDS: '5',
+      ALEPH_PIN_ATTEMPTS: '4',
+      ALEPH_PIN_DELAY_SECONDS: '10',
+      IPFS_GATEWAY_WAIT_ATTEMPTS: '30',
+      IPFS_GATEWAY_WAIT_DELAY_SECONDS: '10',
+    },
+  });
+});
+
+test('buildRootfs executes prepare and run commands from the selected execution plan', async () => {
+  const plan = await loadPlan('docker');
+  const commands: Array<{ command: string; args: string[] }> = [];
+
+  const result = await buildRootfs(
+    plan,
+    {
+      async run(command) {
+        commands.push({ command: command.command, args: command.args });
+      },
+    },
+    {
+      hasDocker: true,
+      dockerDaemonRunning: true,
+      hasVirtCustomize: false,
+    },
+    {
+      referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+    },
+  );
+
+  assert.equal(result.pipeline.executionPlan.mode, 'docker');
+  assert.deepEqual(commands, [
+    {
+      command: 'docker',
+      args: [
+        'build', '--platform', 'linux/amd64', '-t', 'uc-go-peer-rootfs-builder:local', '-f',
+        '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/Dockerfile.rootfs',
+        '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+      ],
+    },
+    {
+      command: 'docker',
+      args: [
+        'run', '--rm', '--privileged', '--platform', 'linux/amd64',
+        '-e', 'LIBGUESTFS_BACKEND=direct',
+        '-e', 'ROOTFS_CONTRACT_FILE=/workspace/project/go-peer/aleph/root-profiles/uc-go-peer.json',
+        '-e', 'OUT_DIR=/workspace/project/go-peer/aleph/dist-rootfs',
+        '-e', 'ROOTFS_IMAGE_SIZE=20G',
+        '-e', 'PROJECT_DIR=/workspace/project',
+        '-v', '/workspace/universal-connectivity:/workspace/project',
+        '-v', '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs:/workspace/shared-rootfs',
+        '-w', '/workspace/shared-rootfs',
+        'uc-go-peer-rootfs-builder:local',
+        'bash', '/workspace/shared-rootfs/build-rootfs-image.sh',
+      ],
+    },
+  ]);
+});
+
+test('publishRootfs runs the shared build-rootfs script and finalizes publish artifacts', async () => {
+  const plan = await loadPlan('auto');
+  const commands: string[] = [];
+
+  const result = await publishRootfs(plan, {
+    async run(command) {
+      commands.push([command.command, ...command.args].join(' '));
+    },
+    async readText(targetPath) {
+      if (targetPath.endsWith('ipfs-add-response.jsonl')) {
+        return [
+          '{"Name":"chunk-a","Hash":"bafychunk","Size":"1024"}',
+          '{"Name":"aleph-uc-go-peer.qcow2","Hash":"bafyrootfs","Size":"987654321"}',
+        ].join('\n');
+      }
+      if (targetPath.endsWith('store-message.json')) {
+        return '{"item_hash":"store-item-hash"}';
+      }
+      throw new Error(`Unexpected read: ${targetPath}`);
+    },
+  }, {
+    createdAt: '2026-05-16T12:34:56Z',
+    referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+  });
+
+  assert.deepEqual(commands, [
+    'bash /workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/build-rootfs.sh',
+  ]);
+  assert.equal(result.finalized.manifest.rootfsCid, 'bafyrootfs');
+  assert.equal(result.finalized.manifest.rootfsItemHash, 'store-item-hash');
+  assert.equal(result.finalized.manifest.rootfsSourceSizeBytes, 987654321);
+});
+
+test('publishRootfs supports skip-upload manifest generation without reading publish artifacts', async () => {
+  const plan = await loadPlan('auto', true);
+  let readCalls = 0;
+
+  const result = await publishRootfs(plan, {
+    async run() {},
+    async readText() {
+      readCalls += 1;
+      return '';
+    },
+  }, {
+    createdAt: '2026-05-16T12:34:56Z',
+    referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+  });
+
+  assert.equal(readCalls, 0);
+  assert.equal(result.finalized.manifest.rootfsCid, undefined);
+  assert.equal(result.finalized.manifest.createdAt, '2026-05-16T12:34:56Z');
+});

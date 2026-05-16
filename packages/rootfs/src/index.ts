@@ -5,3 +5,4 @@ export * from "./manifest.ts";
 export * from "./execution-plan.ts";
 export * from "./publication.ts";
 export * from "./orchestration.ts";
+export * from "./executor.ts";
