@@ -107,12 +107,13 @@ build_with_docker() {
 
   docker run --rm --privileged --platform linux/amd64 \
     -e LIBGUESTFS_BACKEND=direct \
-    -e ROOTFS_CONTRACT_FILE=/workspace/universal-connectivity/go-peer/aleph/root-profiles/uc-go-peer.json \
+    -e ROOTFS_CONTRACT_FILE=/workspace/shared-rootfs/input-rootfs-contract.json \
     -e OUT_DIR=/workspace/universal-connectivity/go-peer/aleph/dist-rootfs \
     -e ROOTFS_IMAGE_SIZE="${ROOTFS_IMAGE_SIZE}" \
     -e PROJECT_DIR=/workspace/universal-connectivity \
     -v "${PROJECT_DIR}:/workspace/universal-connectivity" \
     -v "${SCRIPT_DIR}:/workspace/shared-rootfs" \
+    -v "${ROOTFS_CONTRACT_FILE}:/workspace/shared-rootfs/input-rootfs-contract.json:ro" \
     -w /workspace/shared-rootfs \
     uc-go-peer-rootfs-builder:local \
     /bin/bash /workspace/shared-rootfs/build-rootfs-image.sh
