@@ -14,6 +14,14 @@ test('appendGithubOutput writes name=value pairs when GITHUB_OUTPUT is set', asy
   assert.equal(content, 'foo=bar\n')
 })
 
+test('appendGithubOutput uses multiline syntax for newline-containing values', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'shared-aleph-output-'))
+  const file = join(dir, 'output.txt')
+  await appendGithubOutput('json', '{\n  "ok": true\n}', { GITHUB_OUTPUT: file })
+  const content = await readFile(file, 'utf8')
+  assert.match(content, /^json<<__ALEPH_OUTPUT_[^\n]+__\n\{\n  "ok": true\n\}\n__ALEPH_OUTPUT_[^\n]+__\n$/)
+})
+
 test('appendGithubSummary writes multiline summary content', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'shared-aleph-summary-'))
   const file = join(dir, 'summary.txt')

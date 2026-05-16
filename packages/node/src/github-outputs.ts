@@ -1,4 +1,5 @@
 import { appendFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 
 export async function appendGithubOutput(
   name: string,
@@ -7,7 +8,13 @@ export async function appendGithubOutput(
 ): Promise<void> {
   const outputFile = env.GITHUB_OUTPUT
   if (!outputFile) return
-  await appendFile(outputFile, `${name}=${String(value ?? '')}\n`)
+  const normalized = String(value ?? '')
+  if (/\r|\n/.test(normalized)) {
+    const marker = `__ALEPH_OUTPUT_${randomUUID()}__`
+    await appendFile(outputFile, `${name}<<${marker}\n${normalized}\n${marker}\n`)
+    return
+  }
+  await appendFile(outputFile, `${name}=${normalized}\n`)
 }
 
 export async function appendGithubSummary(
