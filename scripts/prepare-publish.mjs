@@ -89,11 +89,11 @@ async function main() {
     const readmePath = join(packageRoot, 'README.md')
     await cp(readmePath, join(distDir, 'README.md'))
 
-    if (target.dir === 'rootfs') {
+    if (packageJson.name === '@shared-aleph/rootfs') {
       await cp(join(packageRoot, 'reference'), join(distDir, 'reference'), { recursive: true })
     }
 
-    if (target.dir === 'node') {
+    if (packageJson.name === '@shared-aleph/node') {
       await cp(join(packagesDir, 'rootfs', 'reference'), join(distDir, 'reference'), { recursive: true })
     }
   }
