@@ -1,47 +1,144 @@
 # Reusable Workflow Reference
 
-The shared reusable workflow path is reserved at:
+The shared reusable workflow entrypoint is:
 
 - `.github/workflows/aleph-rootfs-build-publish-deploy.yml`
 
+Its purpose is to give consumer repositories a ready-made GitHub Actions job
+for:
+
+1. checking out the caller repository
+2. checking out `shared-aleph-tooling`
+3. installing the shared workspace
+4. building a RootFS image through the Aleph Rootfs Runner
+5. optionally publishing that RootFS to IPFS and Aleph
+6. exporting manifest and image outputs back to the caller workflow
+
 ## Current Status
 
-This workflow is still a scaffold.
+This workflow is real and usable today for the RootFS build/publish part of the
+pipeline.
 
-Right now it accepts only a minimal contract:
+It is not yet the full end-to-end Aleph deployment workflow.
+
+Specifically:
+
+- RootFS build is implemented
+- RootFS publish is implemented
+- manifest export is implemented
+- artifact upload is implemented
+- VM deploy inside this reusable workflow is still intentionally not wired
+
+If `deploy_vm=true` is passed today, the workflow fails fast on purpose and
+tells the caller to use the shared deploy action separately.
+
+## Inputs
+
+Current supported inputs:
 
 - `profile`
+  Required profile identifier such as `uc-go-peer`.
 - `publish`
+  Whether to upload the built RootFS to IPFS and publish an Aleph `STORE`
+  message.
 - `deploy_vm`
+  Reserved for future shared deployment wiring. Not implemented yet.
+- `rootfs_version`
+  Optional explicit version override for the generated RootFS manifest.
+- `rootfs_contract_path`
+  Path to the RootFS contract inside the caller repository.
+- `rootfs_driver`
+  RootFS build driver preference such as `auto`.
+- `project_checkout_path`
+  Checkout path used for the caller repository.
+- `tooling_checkout_path`
+  Checkout path used for `shared-aleph-tooling`.
+- `tooling_repository`
+  Repository that contains the shared tooling source.
+- `tooling_ref`
+  Ref of the shared tooling repository to checkout.
 
-and runs a placeholder job.
+## Secrets
 
-## Intended Role
+- `ALEPH_PRIVATE_KEY`
+  Required only when `publish=true`.
 
-The reusable workflow is planned to become the high-level automation entrypoint
-that composes:
+## Outputs
 
-1. rootfs build
-2. Aleph `STORE` publish
-3. optional site publish or republish
-4. VM deployment through the shared deploy action
-5. successful-deployment retention cleanup
+The workflow currently exports:
 
-## Why It Is Not Finished Yet
+- `rootfs_version`
+- `rootfs_manifest_json`
+- `rootfs_manifest_path`
+- `rootfs_manifest_copy_target_path`
+- `rootfs_manifest_versioned_path`
+- `rootfs_image_path`
+- `rootfs_execution_mode`
+- `rootfs_cid`
+- `rootfs_item_hash`
+- `rootfs_source_size_bytes`
 
-The shared deploy action was migrated first because it had the clearest
-cross-repo value and the tightest coupling to both UC and the future PWA flow.
+These outputs let a caller workflow continue with repo-specific steps such as:
 
-The rootfs workflow still needs:
+- site publish or republish
+- VM deployment through a separate action
+- probe execution
+- retention cleanup
 
-- shared rootfs package implementation
-- reusable guest-script packaging
-- stable rootfs manifest generation
-- a finalized publish contract
+## What The Workflow Actually Does
 
-## Recommendation For Now
+At a high level, the workflow:
 
-Use the shared deploy action directly and treat the reusable workflow as
-planned-but-not-finalized infrastructure.
+1. checks out the caller repository
+2. checks out `shared-aleph-tooling`
+3. installs `pnpm` and Node
+4. installs the shared workspace dependencies
+5. validates input combinations
+6. installs system packages needed for RootFS builds
+7. optionally installs `aleph-client`
+8. optionally prepares the Aleph account from `ALEPH_PRIVATE_KEY`
+9. runs `packages/node/src/rootfs-runner.ts`
+10. exports the generated manifest JSON
+11. uploads the resulting workspace artifacts
 
-That keeps the docs honest and avoids overstating the current implementation.
+## Validation Rules
+
+The workflow currently enforces:
+
+- `deploy_vm=true` is rejected because that stage is not wired yet
+- `publish=true` requires `ALEPH_PRIVATE_KEY`
+
+This is intentional. The workflow is designed to be honest about what it owns
+today instead of pretending to be a full deploy pipeline already.
+
+## Recommended Usage
+
+Use this workflow when:
+
+- you want shared RootFS build and publish behavior
+- your consumer repo still wants to keep its own orchestration around deploy,
+  site publishing, probing, or retention
+
+Do not use it yet as the only deploy entrypoint if you expect:
+
+- VM deployment
+- site publishing
+- domain linking
+- retention cleanup
+
+inside the same reusable workflow call.
+
+## Relationship To The Package-Based Approach
+
+This repo also supports a package-based integration model where consumer repos
+install `@le-space/node` and call the Aleph runners directly from their own
+workflows.
+
+That package-based approach is still the more flexible option when:
+
+- the consumer repo is public and the shared repo is private
+- the consumer wants to keep its own workflow layout
+- only part of the pipeline should be centralized
+
+The reusable workflow is best understood as a shared RootFS stage, not yet a
+complete shared deployment system.
