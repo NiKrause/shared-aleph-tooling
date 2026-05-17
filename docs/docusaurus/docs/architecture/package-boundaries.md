@@ -3,6 +3,11 @@
 The repository is split so the Aleph domain logic stays reusable while
 environment-specific code lives in thin adapters.
 
+Workspace package names use the `@shared-aleph/*` scope.
+
+Published consumer packages are currently released under the `@le-space/*`
+scope.
+
 ## `@shared-aleph/shared-types`
 
 This package should hold only shared contracts and value shapes.
@@ -79,20 +84,22 @@ Expected later responsibilities:
 - deployment polling helpers for UI flows
 - browser-safe wrappers around the shared core
 
-For now it is intentionally still a scaffold.
+It is still intentionally early.
 
 ## `@shared-aleph/rootfs`
 
-This package will own reusable rootfs build and contract helpers.
+This package owns reusable RootFS build and contract helpers.
 
-Expected later responsibilities:
+Current responsibilities:
 
 - manifest creation
-- rootfs profile helpers
-- reusable guest-script packaging
-- build orchestration shared between CI and local tooling
+- RootFS contract parsing
+- execution planning
+- reusable guest-script and reference asset packaging
+- build and publish orchestration used by the Node runner
 
-For now it is intentionally still a scaffold.
+It is the right package for reusable RootFS-specific logic that should not live
+inside consumer repositories.
 
 ## GitHub Action And Workflow Layers
 
@@ -101,8 +108,7 @@ The repo also contains two automation entrypoints outside `packages/`:
 - `.github/actions/aleph-vm-deploy`
   Shared deploy action backed by `@shared-aleph/node`.
 - `.github/workflows/aleph-rootfs-build-publish-deploy.yml`
-  Planned reusable workflow that will later compose rootfs build, publish, and
-  deploy stages.
+  Shared workflow entrypoint for RootFS build, publish, and deploy stages.
 
 The action should stay thin. The reusable logic belongs in packages, not in
 large YAML or shell blocks.

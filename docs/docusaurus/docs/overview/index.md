@@ -1,37 +1,50 @@
 # Shared Aleph Tooling
 
-`shared-aleph-tooling` is the new source of truth for Aleph VM deployment and
-rootfs automation shared between:
+`shared-aleph-tooling` provides reusable Aleph Cloud deployment tooling for
+consumer projects that need to:
 
-- `universal-connectivity`
-- `relay-deployer-pwa`
+- build and publish RootFS images
+- deploy Aleph VM instances
+- publish static sites through Aleph/IPFS
+- verify deployed relays and bootstrap addresses
+- clean up older Aleph deployment records
 
-The goal is to keep Aleph-specific logic in one place and leave each consumer
-repo with only thin wrappers and app-specific behavior.
+This repo is the implementation layer behind Aleph deployment flows used by
+consumer projects such as `universal-connectivity`.
+
+## Package Naming
+
+Workspace package names use the `@shared-aleph/*` scope.
+
+Published consumer packages are currently released under the `@le-space/*`
+scope.
+
+For example:
+
+- workspace package: `@shared-aleph/node`
+- published consumer package: `@le-space/node`
 
 ## What Exists Today
 
-The repository already contains working shared foundations for:
+The repository currently contains working Aleph-specific support for:
 
 - shared manifest and runtime types
-- rootfs manifest validation
-- Aleph `STORE`, `INSTANCE`, `AGGREGATE`, and `FORGET` helper flows
+- RootFS planning and publish helpers
+- Aleph `STORE`, `INSTANCE`, `AGGREGATE`, and `FORGET` flows
 - CRN discovery, ranking, and retry selection
 - deployment inspection and polling
 - runtime inspection and readiness polling
 - `uc-go-peer` guest configuration and verification
-- Node-side action runner logic used by GitHub Actions
+- Node-side Aleph runners used by GitHub Actions
 - a shared `aleph-vm-deploy` GitHub Action
 
 ## What Is Still In Progress
 
-Some parts are intentionally still early:
+Some parts are still intentionally incomplete:
 
-- `@shared-aleph/browser` is scaffold-only
-- `@shared-aleph/rootfs` is scaffold-only
-- the shared reusable workflow is still a placeholder
-- the Docusaurus app itself is not installed yet; these docs currently define
-  the content structure and source material
+- `@shared-aleph/browser` is future-facing
+- the reusable workflow layer is still evolving
+- some docs still describe current direction rather than final public API shape
 
 ## Repository Shape
 
@@ -41,16 +54,15 @@ Some parts are intentionally still early:
   Deployment, runtime, CRN, guest, and retention logic that should not depend
   on GitHub Actions, browsers, or Node-specific environment parsing.
 - `packages/node`
-  Node adapters for private-key signing, GitHub output emission, deploy-plan
-  parsing, and the Aleph action runner.
+  Node adapters and Aleph runner entrypoints for CI and automation.
 - `packages/browser`
-  Reserved for wallet-driven browser flows used by the PWA later.
+  Reserved for browser and wallet-driven Aleph flows.
 - `packages/rootfs`
-  Reserved for reusable rootfs build and manifest tooling.
+  RootFS planning, manifests, reference assets, and build helpers.
 - `.github/actions/aleph-vm-deploy`
   Shared GitHub Action wrapper around the Node runner.
 - `.github/workflows/aleph-rootfs-build-publish-deploy.yml`
-  Planned reusable workflow entrypoint.
+  Shared Aleph workflow entrypoint.
 
 ## Recommended Reading Order
 

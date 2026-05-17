@@ -13,6 +13,11 @@ used by consumer projects such as `universal-connectivity`.
 
 ## What It Contains
 
+Workspace package names use the `@shared-aleph/*` scope.
+
+Published consumer packages are currently released under the `@le-space/*`
+scope.
+
 ### Packages
 
 - `@shared-aleph/shared-types`

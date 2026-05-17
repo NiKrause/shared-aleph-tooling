@@ -2,9 +2,9 @@ const config = {
   title: 'Shared Aleph Tooling',
   tagline: 'Shared Aleph VM deployment, rootfs, and automation tooling',
   favicon: 'img/favicon.svg',
-  url: 'https://example.com',
-  baseUrl: '/',
-  organizationName: 'shared-aleph',
+  url: 'https://nikrause.github.io',
+  baseUrl: '/shared-aleph-tooling/',
+  organizationName: 'NiKrause',
   projectName: 'shared-aleph-tooling',
   onBrokenLinks: 'throw',
   markdown: {
