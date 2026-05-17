@@ -85,6 +85,7 @@ export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): 
   const publishScript = optionalEnv('ALEPH_SITE_PUBLISH_SCRIPT', 'go-peer/aleph/publish-static-site.py', env)
   const siteDirectory = requiredEnv('ALEPH_SITE_DIRECTORY', env)
   const pythonBin = optionalEnv('ALEPH_SITE_PYTHON', 'python3', env)
+  const alephBin = optionalEnv('ALEPH_SITE_ALEPH_BIN', 'aleph', env)
   const pin = optionalEnv('ALEPH_SITE_PIN', 'true', env) === 'true'
 
   const publish = await runCapture(pythonBin, [publishScript, siteDirectory], { cwd: projectDir })
@@ -107,7 +108,7 @@ export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): 
 
   let itemHash = ''
   if (pin) {
-    const pinResult = await runCapture('aleph', ['file', 'pin', cidV0], { cwd: projectDir })
+    const pinResult = await runCapture(alephBin, ['file', 'pin', cidV0], { cwd: projectDir })
     if (pinResult.stdout) process.stdout.write(pinResult.stdout)
     if (pinResult.stderr) process.stderr.write(pinResult.stderr)
     if (pinResult.exitCode !== 0) {
@@ -129,6 +130,37 @@ export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): 
     `- IPFS CID v0: \`${cidV0}\``,
     `- IPFS CID v1: \`${cidV1}\``,
     `- Aleph item hash: \`${itemHash}\``,
+  ], env)
+}
+
+export async function runDomainLinkMode(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const projectDir = optionalEnv('ALEPH_SITE_PROJECT_DIR', process.cwd(), env)
+  const domain = requiredEnv('ALEPH_SITE_DOMAIN', env)
+  const itemHash = requiredEnv('ALEPH_SITE_ITEM_HASH', env)
+  const catchAllPath = optionalEnv('ALEPH_SITE_DOMAIN_CATCH_ALL_PATH', '/index.html', env)
+  const alephBin = optionalEnv('ALEPH_SITE_ALEPH_BIN', 'aleph', env)
+
+  const detach = await runCapture(alephBin, ['domain', 'detach', domain, '--no-ask'], { cwd: projectDir })
+  if (detach.stdout) process.stdout.write(detach.stdout)
+  if (detach.stderr) process.stderr.write(detach.stderr)
+
+  const attach = await runCapture(alephBin, ['domain', 'attach', domain, '--item-hash', itemHash, '--catch-all-path', catchAllPath, '--no-ask'], { cwd: projectDir })
+  if (attach.stdout) process.stdout.write(attach.stdout)
+  if (attach.stderr) process.stderr.write(attach.stderr)
+  if (attach.exitCode !== 0) {
+    throw new Error(`aleph domain attach ${domain} failed with exit code ${attach.exitCode}`)
+  }
+
+  await appendGithubOutput('domain', domain, env)
+  await appendGithubOutput('item_hash', itemHash, env)
+  await appendGithubOutput('url', `https://${domain}`, env)
+
+  await appendGithubSummary([
+    '## Shared Site Runner',
+    '',
+    `- Linked domain: \`${domain}\``,
+    `- Aleph item hash: \`${itemHash}\``,
+    `- Catch-all path: \`${catchAllPath}\``,
   ], env)
 }
 
@@ -171,6 +203,7 @@ export async function runBootstrapEnvMode(env: NodeJS.ProcessEnv = process.env):
 export async function runSiteMode(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const mode = optionalEnv('ALEPH_VM_MODE', 'site-publish', env)
   if (mode === 'site-publish') return await runSitePublishMode(env)
+  if (mode === 'site-domain-link') return await runDomainLinkMode(env)
   if (mode === 'relay-probe') return await runProbeMode(env)
   if (mode === 'bootstrap-env') return await runBootstrapEnvMode(env)
   throw new Error(`Unsupported ALEPH_VM_MODE "${mode}" in shared site runner.`)
