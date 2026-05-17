@@ -94,7 +94,11 @@ Useful commands:
 
 ## Documentation
 
-Project docs live in [docs/docusaurus](./docs/docusaurus).
+Docs site:
+
+- https://nikrause.github.io/shared-aleph-tooling/
+
+Source docs live in [docs/docusaurus](./docs/docusaurus).
 
 Useful references:
 
