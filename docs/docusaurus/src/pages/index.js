@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import Link from '@docusaurus/Link'
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext'
 import Layout from '@theme/Layout'
 
 const cards = [
@@ -15,12 +16,15 @@ const cards = [
   },
   {
     title: 'Automation Surface',
-    body: 'The shared deploy action is already real, while the reusable rootfs workflow is intentionally still staged behind a placeholder contract.',
+    body: 'The shared deploy action and reusable RootFS workflow are both real, with VM deployment still intentionally kept outside the reusable workflow path.',
     to: '/docs/reference/github-action'
   }
 ]
 
 export default function Home() {
+  const { siteConfig } = useDocusaurusContext()
+  const packageVersion = siteConfig.customFields?.packageVersion
+
   return (
     <Layout
       title="Shared Aleph Tooling"
@@ -32,6 +36,9 @@ export default function Home() {
           <p className="hero__subtitle">
             A shared foundation for Aleph VM deployment, rootfs automation, GitHub Actions,
             and future browser-driven deployment flows.
+          </p>
+          <p style={{ marginTop: '0.75rem', fontWeight: 600 }}>
+            Current package version: v{packageVersion}
           </p>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginTop: '1.5rem' }}>
             <Link className="button button--primary button--lg" to="/docs/overview/">

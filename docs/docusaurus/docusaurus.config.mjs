@@ -1,3 +1,13 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const configDir = fileURLToPath(new URL('.', import.meta.url))
+const nodePackage = JSON.parse(
+  readFileSync(join(configDir, '..', '..', 'packages', 'node', 'package.json'), 'utf8')
+)
+const packageVersion = nodePackage.version
+
 const config = {
   title: 'Shared Aleph Tooling',
   tagline: 'Shared Aleph VM deployment, rootfs, and automation tooling',
@@ -30,6 +40,9 @@ const config = {
       }
     ]
   ],
+  customFields: {
+    packageVersion
+  },
   themeConfig: {
     navbar: {
       title: 'Shared Aleph Tooling',
@@ -43,6 +56,11 @@ const config = {
           sidebarId: 'docsSidebar',
           position: 'left',
           label: 'Docs'
+        },
+        {
+          to: '/docs/overview/',
+          position: 'right',
+          label: `v${packageVersion}`
         }
       ]
     },
@@ -76,7 +94,7 @@ const config = {
           ]
         }
       ],
-      copyright: `Copyright ${new Date().getFullYear()} Shared Aleph Tooling`
+      copyright: `Copyright ${new Date().getFullYear()} Shared Aleph Tooling · Current package version v${packageVersion}`
     },
     colorMode: {
       defaultMode: 'light',
