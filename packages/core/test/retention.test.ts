@@ -13,7 +13,7 @@ function jsonResponse(payload: unknown, status = 200) {
   }
 }
 
-test('retainSuccessfulDeployments keeps latest records, publishes aggregate, and forgets pruned hashes', async () => {
+test('retainSuccessfulDeployments keeps latest records, publishes aggregate, and forgets pruned hashes in dependency order', async () => {
   const writes: Array<{ url: string; body: string }> = []
 
   const messageStatuses: Record<string, string> = {
@@ -78,10 +78,20 @@ test('retainSuccessfulDeployments keeps latest records, publishes aggregate, and
 
   assert.equal(result.retainedRecords.length, 1)
   assert.equal(result.retainedRecords[0].instance_item_hash, 'instance-new')
-  assert.deepEqual(result.forgetHashes.sort(), ['extra-hash', 'instance-old', 'rootfs-old', 'site-old'].sort())
+  assert.deepEqual(result.forgetHashes, ['instance-old', 'rootfs-old', 'site-old', 'extra-hash'])
   assert.equal(result.aggregatePublication.status, 'processed')
   assert.equal(result.forgetResult?.status, 'processed')
   assert.deepEqual(result.forgottenHashes.sort(), ['extra-hash', 'instance-old', 'rootfs-old', 'site-old'].sort())
   assert.deepEqual(result.outstandingForgetHashes, [])
-  assert.equal(writes.length, 2)
+  assert.equal(result.forgetStageResults.length, 2)
+  assert.deepEqual(result.forgetStageResults[0].hashes, ['instance-old'])
+  assert.deepEqual(result.forgetStageResults[1].hashes, ['rootfs-old', 'site-old', 'extra-hash'])
+  assert.equal(writes.length, 3)
+
+  const forgetBodies = writes.slice(1).map(({ body }) => {
+    const payload = JSON.parse(body)
+    return JSON.parse(payload.message.item_content)
+  })
+  assert.deepEqual(forgetBodies[0].hashes, ['instance-old'])
+  assert.deepEqual(forgetBodies[1].hashes, ['rootfs-old', 'site-old', 'extra-hash'])
 })
