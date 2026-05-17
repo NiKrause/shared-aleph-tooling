@@ -1,4 +1,4 @@
-import type { MessageSigner } from '@shared-aleph/shared-types'
+import type { MessageSigner } from '@le-space/shared-types'
 
 type WalletLike = {
   address?: string

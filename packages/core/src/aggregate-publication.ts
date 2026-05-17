@@ -7,7 +7,7 @@ import type {
   PortForwardAggregate,
   RootfsManifest,
   RootfsRequiredPortForward
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, signAlephMessage, type JsonFetchLike } from './broadcast.ts'
 import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'

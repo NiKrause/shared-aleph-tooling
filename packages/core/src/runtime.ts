@@ -4,7 +4,7 @@ import type {
   InstanceRuntimeDetails,
   InstanceWebAccess,
   RuntimeDiagnostics
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import { normalizeExecution, normalizeProxyUrl } from './aleph-normalizers.ts'
 import { fetchCrns, DEFAULT_CRN_LIST_URL } from './crns.ts'

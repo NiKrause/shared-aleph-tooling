@@ -1,4 +1,4 @@
-import type { PortMapping } from '@shared-aleph/shared-types'
+import type { PortMapping } from '@le-space/shared-types'
 
 import type { FetchLike } from './manifests.ts'
 

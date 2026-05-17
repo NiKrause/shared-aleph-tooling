@@ -1,7 +1,7 @@
 # Deployment Lifecycle
 
 This page describes the current shared deployment flow implemented by
-`@shared-aleph/core` and `@shared-aleph/node`.
+`@le-space/core` and `@le-space/node`.
 
 ## High-Level Flow
 

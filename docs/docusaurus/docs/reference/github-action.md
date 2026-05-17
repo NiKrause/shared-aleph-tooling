@@ -6,7 +6,7 @@ The shared GitHub Action lives at:
 
 This action is the main shared entrypoint for Aleph VM deployment work today.
 
-It wraps the Aleph Action Runner from `@shared-aleph/node` and exposes a GitHub
+It wraps the Aleph Action Runner from `@le-space/node` and exposes a GitHub
 Actions-friendly input/output contract for consumer workflows.
 
 ## Supported Modes

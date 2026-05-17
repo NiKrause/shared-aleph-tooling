@@ -1,4 +1,4 @@
-import type { RootfsManifest, RootfsManifestState, RootfsResolution, MessageStatus } from '@shared-aleph/shared-types'
+import type { RootfsManifest, RootfsManifestState, RootfsResolution, MessageStatus } from '@le-space/shared-types'
 
 export const ITEM_HASH_RE = /^[a-fA-F0-9]{64}$/
 export const DEFAULT_ALEPH_API_HOST = 'https://api2.aleph.im'

@@ -3,14 +3,9 @@
 The repository is split so the Aleph domain logic stays reusable while
 environment-specific code lives in thin adapters.
 
-Workspace package names use the `@shared-aleph/*` scope.
+Packages use the `@le-space/*` scope.
 
-Published consumer packages are currently released under the `@le-space/*`
-scope.
-
-## Workspace: `@shared-aleph/shared-types`
-
-Published: `@le-space/shared-types`
+## `@le-space/shared-types`
 
 This package should hold only shared contracts and value shapes.
 
@@ -28,9 +23,7 @@ This package should not know about:
 - wallet SDKs
 - HTTP request execution
 
-## Workspace: `@shared-aleph/core`
-
-Published: `@le-space/core`
+## `@le-space/core`
 
 This is the reusable deployment engine.
 
@@ -58,9 +51,7 @@ This package should not directly depend on:
 - browser wallets
 - CLI argument parsing
 
-## Workspace: `@shared-aleph/node`
-
-Published: `@le-space/node`
+## `@le-space/node`
 
 This package adapts the shared core for Node and GitHub Actions.
 
@@ -79,9 +70,9 @@ This package is the correct place for:
 - GitHub output formatting
 - Node-specific crypto or wallet loading
 
-## Workspace: `@shared-aleph/browser`
+## `@le-space/browser`
 
-Published: not released yet
+Not released yet.
 
 This package is reserved for the browser and PWA integration path.
 
@@ -94,9 +85,7 @@ Expected later responsibilities:
 
 It is still intentionally early.
 
-## Workspace: `@shared-aleph/rootfs`
-
-Published: `@le-space/rootfs`
+## `@le-space/rootfs`
 
 This package owns reusable RootFS build and contract helpers.
 
@@ -116,7 +105,7 @@ inside consumer repositories.
 The repo also contains two automation entrypoints outside `packages/`:
 
 - `.github/actions/aleph-vm-deploy`
-  Shared deploy action backed by `@shared-aleph/node`.
+  Shared deploy action backed by `@le-space/node`.
 - `.github/workflows/aleph-rootfs-build-publish-deploy.yml`
   Shared workflow entrypoint for RootFS build, publish, and deploy stages.
 

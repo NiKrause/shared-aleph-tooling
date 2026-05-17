@@ -1,4 +1,4 @@
-# @shared-aleph/rootfs
+# @le-space/rootfs
 
 Shared rootfs contract parsing, reference profile assets, and build helpers.
 

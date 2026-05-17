@@ -6,7 +6,7 @@ how to build, describe, and publish a VM image profile.
 In practice:
 
 - consumer repos keep one contract file per profile
-- `@shared-aleph/rootfs` validates and parses the contract
+- `@le-space/rootfs` validates and parses the contract
 - the Node runner exports the contract into shell env for the actual build path
 
 The current `uc-go-peer` contract lives in:
@@ -81,7 +81,7 @@ The `rootfs` object describes how the guest image should be structured.
 
 - `profile`
   Reference profile name. This selects the reusable reference assets packaged
-  in `@shared-aleph/rootfs`.
+  in `@le-space/rootfs`.
 - `installMode`
   Consumer-specific install mode. `uc-go-peer` currently uses `prebaked`.
 - `installDir`

@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url'
 
-import type { PortMapping } from '@shared-aleph/shared-types'
+import type { PortMapping } from '@le-space/shared-types'
 import { listGeocodedCrns, retainSuccessfulDeployments } from '../../core/src/index.ts'
 
 import { integerEnv, jsonEnv, optionalEnv, requiredEnv } from './env.ts'

@@ -23,7 +23,7 @@ import type {
   MessageHasher,
   MessageSigner,
   RootfsManifest
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import type { DeployConfigurationResult, DeployOutputResult } from './deploy-outputs.ts'
 import type { DeployPlan } from './deploy-plan.ts'

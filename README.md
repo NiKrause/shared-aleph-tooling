@@ -13,31 +13,24 @@ used by consumer projects such as `universal-connectivity`.
 
 ## What It Contains
 
-Workspace package names use the `@shared-aleph/*` scope.
-
-Published consumer packages are currently released under the `@le-space/*`
-scope.
+Packages use the `@le-space/*` scope.
 
 ### Packages
 
-- workspace: `@shared-aleph/shared-types`
-  published: `@le-space/shared-types`
+- `@le-space/shared-types`
   Shared types and contracts used across the workspace.
-- workspace: `@shared-aleph/core`
-  published: `@le-space/core`
+- `@le-space/core`
   Aleph-specific deployment, runtime, CRN, guest, and retention logic.
-- workspace: `@shared-aleph/node`
-  published: `@le-space/node`
+- `@le-space/node`
   Node entrypoints and adapters for:
   - RootFS build/publish
   - site publish and domain link
   - VM deploy and retention actions
   - GitHub Actions output and summary handling
-- workspace: `@shared-aleph/rootfs`
-  published: `@le-space/rootfs`
+- `@le-space/rootfs`
   RootFS planning, manifests, reference assets, and build helpers.
-- workspace: `@shared-aleph/browser`
-  published: not released yet
+- `@le-space/browser`
+  not released yet
   Reserved for future browser and wallet-driven Aleph flows.
 
 ### GitHub Automation
@@ -87,8 +80,8 @@ pnpm test
 
 Useful commands:
 
-- `pnpm --filter @shared-aleph/core test`
-- `pnpm --filter @shared-aleph/node test`
+- `pnpm --filter @le-space/core test`
+- `pnpm --filter @le-space/node test`
 - `pnpm docs:dev`
 - `pnpm docs:build`
 

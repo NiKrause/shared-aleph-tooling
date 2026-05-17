@@ -1,5 +1,5 @@
 {
-  "name": "@shared-aleph/node",
+  "name": "@le-space/node",
   "version": "0.1.18",
   "description": "Node and GitHub Actions adapters for shared Aleph tooling.",
   "license": "MIT",
@@ -8,9 +8,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
-    "@shared-aleph/core": "workspace:*",
-    "@shared-aleph/shared-types": "workspace:*",
-    "@shared-aleph/rootfs": "workspace:*",
+    "@le-space/core": "workspace:*",
+    "@le-space/shared-types": "workspace:*",
+    "@le-space/rootfs": "workspace:*",
     "ethers": "^6.15.0"
   },
   "scripts": {

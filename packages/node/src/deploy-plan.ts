@@ -1,4 +1,4 @@
-import type { RootfsRequiredPortForward } from '@shared-aleph/shared-types'
+import type { RootfsRequiredPortForward } from '@le-space/shared-types'
 
 import { booleanEnv, integerEnv, jsonEnv, optionalEnv, requiredEnv } from './env.ts'
 

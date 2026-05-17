@@ -3,7 +3,7 @@ import type {
   InstanceAllocation,
   PortMapping,
   RuntimeDiagnostics
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import { appendGithubOutput, appendGithubSummary } from './github-outputs.ts'
 

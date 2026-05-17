@@ -124,9 +124,9 @@ Then in GitHub:
 
 ## First Real Publish Order
 
-1. `@shared-aleph/shared-types`
-2. `@shared-aleph/core`
-3. `@shared-aleph/node`
+1. `@le-space/shared-types`
+2. `@le-space/core`
+3. `@le-space/node`
 
 Those are the source package names. The preferred published names are:
 
@@ -136,8 +136,8 @@ Those are the source package names. The preferred published names are:
 
 Keep these private for now:
 
-- `@shared-aleph/browser`
-- `@shared-aleph/rootfs`
+- `@le-space/browser`
+- `@le-space/rootfs`
 
 ## After First Publish
 

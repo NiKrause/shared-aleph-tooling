@@ -2,7 +2,7 @@ import type {
   DeploymentInspectionResult,
   MessageInspectionResult,
   MessageReference
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import { DEFAULT_ALEPH_API_HOST, type FetchLike } from './manifests.ts'
 import {

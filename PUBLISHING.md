@@ -7,9 +7,9 @@ but it is not ready to publish yet.
 
 The safest initial publish set is:
 
-- `@shared-aleph/shared-types`
-- `@shared-aleph/core`
-- `@shared-aleph/node`
+- `@le-space/shared-types`
+- `@le-space/core`
+- `@le-space/node`
 
 The release workflow can rewrite those package names to the active npm publish
 scope at release time. The preferred default scope is now:
@@ -18,8 +18,8 @@ scope at release time. The preferred default scope is now:
 
 Keep these private for now:
 
-- `@shared-aleph/browser`
-- `@shared-aleph/rootfs`
+- `@le-space/browser`
+- `@le-space/rootfs`
 
 Those two still need more real implementation before they should be exposed as
 public packages.
@@ -47,9 +47,9 @@ public packages.
 The repo now has non-destructive preview build scripts for the three likely
 first-publish packages:
 
-- `pnpm --filter @shared-aleph/shared-types run build:publish`
-- `pnpm --filter @shared-aleph/core run build:publish`
-- `pnpm --filter @shared-aleph/node run build:publish`
+- `pnpm --filter @le-space/shared-types run build:publish`
+- `pnpm --filter @le-space/core run build:publish`
+- `pnpm --filter @le-space/node run build:publish`
 - `pnpm build:publishable`
 - `pnpm publish:prepare`
 
@@ -78,9 +78,9 @@ enabled.
 
 The publish preview path is now working for:
 
-- `@shared-aleph/shared-types`
-- `@shared-aleph/core`
-- `@shared-aleph/node`
+- `@le-space/shared-types`
+- `@le-space/core`
+- `@le-space/node`
 
 The packages remain private in source form for now, but the preview release
 artifacts and dist-local package manifests build successfully.
@@ -95,9 +95,9 @@ The concrete GitHub repo and first-push checklist lives in
 3. Push the release workflow with the standalone repo as source of truth.
 4. Add npm authentication secrets to the new repo.
 5. Run the workflow once in `dry_run` mode and inspect tarballs.
-6. Publish `@shared-aleph/shared-types`.
-7. Publish `@shared-aleph/core`.
-8. Publish `@shared-aleph/node`.
+6. Publish `@le-space/shared-types`.
+7. Publish `@le-space/core`.
+8. Publish `@le-space/node`.
 9. Update `universal-connectivity` to consume the published packages.
 
 ## What Not To Publish Yet

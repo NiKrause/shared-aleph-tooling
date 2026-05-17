@@ -55,19 +55,19 @@ importers:
 
   packages/core:
     dependencies:
-      '@shared-aleph/shared-types':
+      '@le-space/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
   packages/node:
     dependencies:
-      '@shared-aleph/core':
+      '@le-space/core':
         specifier: workspace:*
         version: link:../core
-      '@shared-aleph/rootfs':
+      '@le-space/rootfs':
         specifier: workspace:*
         version: link:../rootfs
-      '@shared-aleph/shared-types':
+      '@le-space/shared-types':
         specifier: workspace:*
         version: link:../shared-types
       ethers:

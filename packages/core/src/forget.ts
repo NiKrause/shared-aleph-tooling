@@ -1,4 +1,4 @@
-import type { AlephBroadcastMessage, MessageHasher, MessageSigner } from '@shared-aleph/shared-types'
+import type { AlephBroadcastMessage, MessageHasher, MessageSigner } from '@le-space/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, type JsonFetchLike, signAlephMessage } from './broadcast.ts'
 import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'

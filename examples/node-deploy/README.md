@@ -1,7 +1,7 @@
 # Node Deploy Example
 
 This example directory is reserved for a future headless Node deployment flow
-using `@shared-aleph/node`.
+using `@le-space/node`.
 
 The target example should demonstrate:
 

@@ -1,4 +1,4 @@
-import type { CrnRecord } from '@shared-aleph/shared-types'
+import type { CrnRecord } from '@le-space/shared-types'
 
 import { DEFAULT_ALEPH_API_HOST, type FetchLike } from './manifests.ts'
 

@@ -2,7 +2,7 @@ import type {
   InstanceExecution,
   MessageReference,
   MessageStatus
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 type MessageEnvelope = {
   status?: unknown

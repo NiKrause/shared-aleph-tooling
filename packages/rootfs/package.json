@@ -1,5 +1,5 @@
 {
-  "name": "@shared-aleph/rootfs",
+  "name": "@le-space/rootfs",
   "version": "0.1.18",
   "description": "Shared rootfs contract parsing, reference profile assets, and build helpers.",
   "license": "MIT",

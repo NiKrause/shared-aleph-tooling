@@ -4,7 +4,7 @@ import type {
   DeploymentResult,
   MessageHasher,
   MessageSigner
-} from '@shared-aleph/shared-types'
+} from '@le-space/shared-types'
 
 import { broadcastAlephMessage } from './broadcast.ts'
 import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'

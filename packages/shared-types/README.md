@@ -1,5 +1,4 @@
-# @shared-aleph/shared-types
+# @le-space/shared-types
 
 Shared type definitions for manifests, deployment results, runtime metadata,
 and related Aleph tooling contracts.
-

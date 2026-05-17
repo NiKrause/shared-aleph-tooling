@@ -14,15 +14,11 @@ consumer projects such as `universal-connectivity`.
 
 ## Package Naming
 
-Workspace package names use the `@shared-aleph/*` scope.
-
-Published consumer packages are currently released under the `@le-space/*`
-scope.
+Packages use the `@le-space/*` scope.
 
 For example:
 
-- workspace package: `@shared-aleph/node`
-- published consumer package: `@le-space/node`
+- package: `@le-space/node`
 
 ## What Exists Today
 
@@ -42,8 +38,8 @@ The repository currently contains working Aleph-specific support for:
 
 Some parts are still intentionally incomplete:
 
-- workspace: `@shared-aleph/browser`
-  published: not released yet
+- `@le-space/browser`
+  not released yet
   future-facing
 - the reusable workflow layer is still evolving
 - some docs still describe current direction rather than final public API shape
@@ -51,25 +47,21 @@ Some parts are still intentionally incomplete:
 ## Repository Shape
 
 - `packages/shared-types`
-  workspace: `@shared-aleph/shared-types`
-  published: `@le-space/shared-types`
+  package: `@le-space/shared-types`
   Shared contracts used across every package.
 - `packages/core`
-  workspace: `@shared-aleph/core`
-  published: `@le-space/core`
+  package: `@le-space/core`
   Deployment, runtime, CRN, guest, and retention logic that should not depend
   on GitHub Actions, browsers, or Node-specific environment parsing.
 - `packages/node`
-  workspace: `@shared-aleph/node`
-  published: `@le-space/node`
+  package: `@le-space/node`
   Node adapters and Aleph runner entrypoints for CI and automation.
 - `packages/browser`
-  workspace: `@shared-aleph/browser`
-  published: not released yet
+  package: `@le-space/browser`
+  not released yet
   Reserved for browser and wallet-driven Aleph flows.
 - `packages/rootfs`
-  workspace: `@shared-aleph/rootfs`
-  published: `@le-space/rootfs`
+  package: `@le-space/rootfs`
   RootFS planning, manifests, reference assets, and build helpers.
 - `.github/actions/aleph-vm-deploy`
   Shared GitHub Action wrapper around the Node runner.

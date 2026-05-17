@@ -21,7 +21,7 @@ consumers. The main rule is simple:
   Future reusable rootfs and guest-script packaging logic.
 
 If a feature needs `process.env`, GitHub output files, or Node-only wallet
-loading, it likely belongs in `@shared-aleph/node`, not `@shared-aleph/core`.
+loading, it likely belongs in `@le-space/node`, not `@le-space/core`.
 
 ## Local Validation
 
@@ -35,8 +35,8 @@ pnpm docs:build
 Targeted checks:
 
 ```bash
-pnpm --filter @shared-aleph/core test
-pnpm --filter @shared-aleph/node test
+pnpm --filter @le-space/core test
+pnpm --filter @le-space/node test
 pnpm --dir docs/docusaurus build
 ```
 
