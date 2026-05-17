@@ -20,19 +20,24 @@ scope.
 
 ### Packages
 
-- `@shared-aleph/shared-types`
+- workspace: `@shared-aleph/shared-types`
+  published: `@le-space/shared-types`
   Shared types and contracts used across the workspace.
-- `@shared-aleph/core`
+- workspace: `@shared-aleph/core`
+  published: `@le-space/core`
   Aleph-specific deployment, runtime, CRN, guest, and retention logic.
-- `@shared-aleph/node`
+- workspace: `@shared-aleph/node`
+  published: `@le-space/node`
   Node entrypoints and adapters for:
   - RootFS build/publish
   - site publish and domain link
   - VM deploy and retention actions
   - GitHub Actions output and summary handling
-- `@shared-aleph/rootfs`
+- workspace: `@shared-aleph/rootfs`
+  published: `@le-space/rootfs`
   RootFS planning, manifests, reference assets, and build helpers.
-- `@shared-aleph/browser`
+- workspace: `@shared-aleph/browser`
+  published: not released yet
   Reserved for future browser and wallet-driven Aleph flows.
 
 ### GitHub Automation

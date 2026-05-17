@@ -8,7 +8,9 @@ Workspace package names use the `@shared-aleph/*` scope.
 Published consumer packages are currently released under the `@le-space/*`
 scope.
 
-## `@shared-aleph/shared-types`
+## Workspace: `@shared-aleph/shared-types`
+
+Published: `@le-space/shared-types`
 
 This package should hold only shared contracts and value shapes.
 
@@ -26,7 +28,9 @@ This package should not know about:
 - wallet SDKs
 - HTTP request execution
 
-## `@shared-aleph/core`
+## Workspace: `@shared-aleph/core`
+
+Published: `@le-space/core`
 
 This is the reusable deployment engine.
 
@@ -54,7 +58,9 @@ This package should not directly depend on:
 - browser wallets
 - CLI argument parsing
 
-## `@shared-aleph/node`
+## Workspace: `@shared-aleph/node`
+
+Published: `@le-space/node`
 
 This package adapts the shared core for Node and GitHub Actions.
 
@@ -73,7 +79,9 @@ This package is the correct place for:
 - GitHub output formatting
 - Node-specific crypto or wallet loading
 
-## `@shared-aleph/browser`
+## Workspace: `@shared-aleph/browser`
+
+Published: not released yet
 
 This package is reserved for the browser and PWA integration path.
 
@@ -86,7 +94,9 @@ Expected later responsibilities:
 
 It is still intentionally early.
 
-## `@shared-aleph/rootfs`
+## Workspace: `@shared-aleph/rootfs`
+
+Published: `@le-space/rootfs`
 
 This package owns reusable RootFS build and contract helpers.
 
