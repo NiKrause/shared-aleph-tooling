@@ -3,9 +3,11 @@ import {
   broadcastInstanceMessage,
   configureOrbitdbRelaySetup,
   DEFAULT_ALEPH_API_HOST,
+  DEFAULT_2N6_API_HOST,
   DEFAULT_CRN_LIST_URL,
   DEFAULT_ALEPH_SCHEDULER_API_HOST,
   fetchBalance,
+  fetch2n6WebAccessUrl,
   fetchCrns,
   fetchInstances,
   fetchMessageEnvelope,
@@ -20,12 +22,14 @@ export interface CreateAlephBrowserClientOptions {
   apiHost?: string
   crnListUrl?: string
   schedulerApiHost?: string
+  twoN6ApiHost?: string
 }
 
 export function createAlephBrowserClient(options: CreateAlephBrowserClientOptions = {}): AlephBrowserClient {
   const apiHost = options.apiHost ?? DEFAULT_ALEPH_API_HOST
   const crnListUrl = options.crnListUrl ?? DEFAULT_CRN_LIST_URL
   const schedulerApiHost = options.schedulerApiHost ?? DEFAULT_ALEPH_SCHEDULER_API_HOST
+  const twoN6ApiHost = options.twoN6ApiHost ?? DEFAULT_2N6_API_HOST
 
   return {
     apiHost,
@@ -39,6 +43,9 @@ export function createAlephBrowserClient(options: CreateAlephBrowserClientOption
     },
     fetchInstances(address) {
       return fetchInstances(address, apiHost)
+    },
+    fetch2n6WebAccessUrl(itemHash) {
+      return fetch2n6WebAccessUrl(itemHash, twoN6ApiHost)
     },
     fetchMessageEnvelope(itemHash) {
       return fetchMessageEnvelope(itemHash, apiHost)

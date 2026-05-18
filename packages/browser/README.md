@@ -24,6 +24,7 @@ That client should remain small and stable. It currently owns:
 - balance lookup
 - CRN listing
 - instance listing
+- 2n6 web access lookup
 - message envelope lookup
 - scheduler allocation lookup
 - CRN allocation notify

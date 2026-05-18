@@ -216,6 +216,7 @@ export interface AlephBrowserClient {
   fetchBalance(address: string): Promise<BalanceResponse>
   fetchCrns(): Promise<Crn[]>
   fetchInstances(address: string): Promise<InstanceMessage[]>
+  fetch2n6WebAccessUrl(itemHash: string): Promise<string | null>
   fetchMessageEnvelope(itemHash: string): Promise<AlephMessageEnvelope | null>
   fetchSchedulerAllocation(itemHash: string): Promise<InstanceAllocation | null>
   notifyCrnAllocation(crnUrl: string, itemHash: string): Promise<AllocationNotifyResult>

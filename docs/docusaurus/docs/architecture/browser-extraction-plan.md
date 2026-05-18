@@ -134,6 +134,7 @@ Own:
 - `fetchBalance`
 - `fetchCrns`
 - `fetchInstances`
+- `fetch2n6WebAccessUrl`
 - `fetchMessageEnvelope`
 - `fetchSchedulerAllocation`
 - `notifyCrnAllocation`
@@ -143,6 +144,7 @@ Own:
 - `broadcastInstanceMessage`
 - `inspectDeploymentResult`
 - `waitForDeploymentResult`
+- `fetch2n6WebAccessUrl`
 - `fetchInstanceRuntimeDetails`
 
 ### `rootfs.ts`

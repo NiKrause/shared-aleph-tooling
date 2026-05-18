@@ -6,6 +6,7 @@ import {
   configureOrbitdbRelaySetup,
   createAlephBrowserClient,
   fetchBalance,
+  fetch2n6WebAccessUrl,
   fetchCrns,
   fetchInstances,
   fetchMessageEnvelope,
@@ -188,6 +189,36 @@ test('fetchInstances requests instance messages and normalizes confirmed items t
         status: 'processed'
       }
     ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('fetch2n6WebAccessUrl normalizes bare subdomains into https URLs', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    let capturedUrl = ''
+    globalThis.fetch = async (input) => {
+      capturedUrl = String(input)
+      return new Response(JSON.stringify({ subdomain: 'relay.example' }), { status: 200 })
+    }
+
+    const webAccessUrl = await fetch2n6WebAccessUrl('a'.repeat(64))
+    assert.match(capturedUrl, /https:\/\/api\.2n6\.me\/api\/hash\//)
+    assert.equal(webAccessUrl, 'https://relay.example')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('fetch2n6WebAccessUrl returns null for missing 2n6 records', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    globalThis.fetch = async () => new Response('', { status: 404 })
+    const webAccessUrl = await fetch2n6WebAccessUrl('b'.repeat(64))
+    assert.equal(webAccessUrl, null)
   } finally {
     globalThis.fetch = originalFetch
   }

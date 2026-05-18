@@ -20,6 +20,7 @@ import type {
 export const DEFAULT_ALEPH_API_HOST = 'https://api2.aleph.im'
 export const DEFAULT_CRN_LIST_URL = 'https://crns-list.aleph.sh/crns.json'
 export const DEFAULT_ALEPH_SCHEDULER_API_HOST = 'https://scheduler.api.aleph.cloud'
+export const DEFAULT_2N6_API_HOST = 'https://api.2n6.me'
 
 type SchedulerAllocationPayload = {
   vm_hash?: unknown
@@ -34,6 +35,14 @@ type SchedulerAllocationPayload = {
     ipv6?: unknown
     supports_ipv6?: unknown
   } | null
+}
+
+type TwoN6HashLookupPayload = {
+  instance_hash?: unknown
+  subdomain?: unknown
+  url?: unknown
+  ipv6?: unknown
+  active?: unknown
 }
 
 export function normalizeMessageStatus(status: unknown): MessageStatus {
@@ -58,6 +67,13 @@ function asNumber(value: unknown): number | null {
 function isUnconfirmedNetworkError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return error instanceof TypeError || message.includes('Failed to fetch') || message.includes('Request timed out')
+}
+
+function normalizeProxyUrl(value: unknown): string | null {
+  const stringValue = asString(value)
+  if (!stringValue) return null
+  if (/^https?:\/\//i.test(stringValue)) return stringValue
+  return `https://${stringValue}`
 }
 
 export async function fetchBalance(address: string, apiHost = DEFAULT_ALEPH_API_HOST): Promise<BalanceResponse> {
@@ -102,6 +118,25 @@ export async function fetchInstances(address: string, apiHost = DEFAULT_ALEPH_AP
           ? 'processed'
           : message.status
   }))
+}
+
+export async function fetch2n6WebAccessUrl(
+  itemHash: string,
+  twoN6ApiHost = DEFAULT_2N6_API_HOST
+): Promise<string | null> {
+  const requestUrl = new URL(`/api/hash/${itemHash}`, twoN6ApiHost).toString()
+
+  try {
+    const response = await fetchWithTimeout(requestUrl, { cache: 'no-cache' })
+    if (response.status === 404 || !response.ok) {
+      return null
+    }
+
+    const payload = (await response.json()) as TwoN6HashLookupPayload
+    return normalizeProxyUrl(payload.url ?? payload.subdomain)
+  } catch {
+    return null
+  }
 }
 
 export async function fetchSchedulerAllocation(
