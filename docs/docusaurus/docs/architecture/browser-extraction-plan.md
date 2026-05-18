@@ -137,6 +137,7 @@ Own:
 - `fetch2n6WebAccessUrl`
 - `fetchMessageEnvelope`
 - `fetchSchedulerAllocation`
+- `fetchCrnExecutionMap`
 - `notifyCrnAllocation`
 - `configureOrbitdbRelaySetup`
 - `createAlephBrowserClient`
@@ -145,6 +146,7 @@ Own:
 - `inspectDeploymentResult`
 - `waitForDeploymentResult`
 - `fetch2n6WebAccessUrl`
+- `normalizeExecution`
 - `fetchInstanceRuntimeDetails`
 
 ### `rootfs.ts`

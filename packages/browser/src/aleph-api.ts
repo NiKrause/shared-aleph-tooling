@@ -7,9 +7,11 @@ import type {
   BalanceResponse,
   BroadcastResult,
   Crn,
+  CrnExecutionLookupResult,
   CrnListResponse,
   DeploymentInspectionResult,
   InstanceAllocation,
+  InstanceExecution,
   InstanceMessage,
   MessageReference,
   MessageStatus,
@@ -36,6 +38,56 @@ type SchedulerAllocationPayload = {
     supports_ipv6?: unknown
   } | null
 }
+
+type CrnExecutionV1Payload = {
+  networking?: {
+    ipv4?: unknown
+    ipv6?: unknown
+  } | null
+}
+
+type CrnExecutionV2Payload = {
+  networking?: {
+    ipv4_network?: unknown
+    host_ipv4?: unknown
+    ipv6_network?: unknown
+    ipv6_ip?: unknown
+    ipv4_ip?: unknown
+    proxy_url?: unknown
+    proxyUrl?: unknown
+    web_access_url?: unknown
+    webAccessUrl?: unknown
+    proxy_hostname?: unknown
+    proxyHostname?: unknown
+    domain?: unknown
+    hostname?: unknown
+    mapped_ports?: Record<string, { host?: unknown; tcp?: unknown; udp?: unknown }> | null
+  } | null
+  web_access?: {
+    url?: unknown
+    proxy_url?: unknown
+    hostname?: unknown
+    domain?: unknown
+  } | null
+  webAccess?: {
+    url?: unknown
+    proxy_url?: unknown
+    hostname?: unknown
+    domain?: unknown
+  } | null
+  status?: {
+    defined_at?: unknown
+    preparing_at?: unknown
+    prepared_at?: unknown
+    starting_at?: unknown
+    started_at?: unknown
+    stopping_at?: unknown
+    stopped_at?: unknown
+  } | null
+  running?: unknown
+}
+
+type CrnExecutionMapPayload = Record<string, CrnExecutionV1Payload | CrnExecutionV2Payload>
 
 type TwoN6HashLookupPayload = {
   instance_hash?: unknown
@@ -74,6 +126,36 @@ function normalizeProxyUrl(value: unknown): string | null {
   if (!stringValue) return null
   if (/^https?:\/\//i.test(stringValue)) return stringValue
   return `https://${stringValue}`
+}
+
+function extractProxyUrl(value: CrnExecutionV2Payload, networking: CrnExecutionV2Payload['networking']): string | null {
+  const networkingCandidates = [
+    networking?.proxy_url,
+    networking?.proxyUrl,
+    networking?.web_access_url,
+    networking?.webAccessUrl,
+    networking?.proxy_hostname,
+    networking?.proxyHostname,
+    networking?.domain,
+    networking?.hostname
+  ]
+
+  for (const candidate of networkingCandidates) {
+    const normalized = normalizeProxyUrl(candidate)
+    if (normalized) return normalized
+  }
+
+  for (const entry of [value.web_access, value.webAccess]) {
+    const normalized =
+      normalizeProxyUrl(entry?.url) ??
+      normalizeProxyUrl(entry?.proxy_url) ??
+      normalizeProxyUrl(entry?.hostname) ??
+      normalizeProxyUrl(entry?.domain)
+
+    if (normalized) return normalized
+  }
+
+  return null
 }
 
 export async function fetchBalance(address: string, apiHost = DEFAULT_ALEPH_API_HOST): Promise<BalanceResponse> {
@@ -171,6 +253,117 @@ export async function fetchSchedulerAllocation(
           duration_seconds: asNumber(payload.period.duration_seconds) ?? undefined
         }
       : null
+  }
+}
+
+export async function fetchCrnExecutionMap(crnUrl: string): Promise<CrnExecutionLookupResult> {
+  const normalizedCrnUrl = crnUrl.replace(/\/+$/, '')
+  const v2Url = `${normalizedCrnUrl}/v2/about/executions/list`
+  const v1Url = `${normalizedCrnUrl}/about/executions/list`
+
+  try {
+    const v2Response = await fetchWithTimeout(v2Url, { cache: 'no-cache' })
+    if (v2Response.ok) {
+      const payload = (await v2Response.json()) as CrnExecutionMapPayload
+      return {
+        payload,
+        blocked: false,
+        requestUrl: v2Url,
+        version: 'v2'
+      }
+    }
+
+    if (v2Response.status !== 404) {
+      return { payload: null, blocked: false, requestUrl: v2Url, version: 'v2' }
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (error instanceof TypeError || message.includes('Failed to fetch')) {
+      return { payload: null, blocked: true, requestUrl: v2Url, version: 'v2' }
+    }
+
+    return { payload: null, blocked: false, requestUrl: v2Url, version: 'v2' }
+  }
+
+  try {
+    const v1Response = await fetchWithTimeout(v1Url, { cache: 'no-cache' })
+    if (!v1Response.ok) {
+      return { payload: null, blocked: false, requestUrl: v1Url, version: 'v1' }
+    }
+
+    const payload = (await v1Response.json()) as CrnExecutionMapPayload
+    return {
+      payload,
+      blocked: false,
+      requestUrl: v1Url,
+      version: 'v1'
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (error instanceof TypeError || message.includes('Failed to fetch')) {
+      return { payload: null, blocked: true, requestUrl: v1Url, version: 'v1' }
+    }
+
+    return { payload: null, blocked: false, requestUrl: v1Url, version: 'v1' }
+  }
+}
+
+export function normalizeExecution(
+  item: CrnExecutionV1Payload | CrnExecutionV2Payload,
+  crnUrl: string
+): InstanceExecution {
+  const networking = item.networking ?? null
+  const mappedPorts =
+    networking && 'mapped_ports' in networking && networking.mapped_ports && typeof networking.mapped_ports === 'object'
+      ? Object.fromEntries(
+          Object.entries(networking.mapped_ports).map(([port, mapping]) => [
+            port,
+            {
+              host: asNumber(mapping?.host) ?? undefined,
+              tcp: typeof mapping?.tcp === 'boolean' ? mapping.tcp : undefined,
+              udp: typeof mapping?.udp === 'boolean' ? mapping.udp : undefined
+            }
+          ])
+        )
+      : undefined
+
+  if (networking && ('host_ipv4' in networking || 'ipv6_ip' in networking || 'ipv4_network' in networking)) {
+    const v2Item = item as CrnExecutionV2Payload
+    return {
+      crnUrl,
+      version: 'v2',
+      running: typeof v2Item.running === 'boolean' ? v2Item.running : undefined,
+      networking: {
+        ipv4_network: asString(networking.ipv4_network),
+        host_ipv4: asString(networking.host_ipv4),
+        ipv6_network: asString(networking.ipv6_network),
+        ipv6_ip: asString(networking.ipv6_ip),
+        ipv4_ip: asString(networking.ipv4_ip),
+        proxy_url: extractProxyUrl(v2Item, networking),
+        mapped_ports: mappedPorts
+      },
+      status: v2Item.status
+        ? {
+            defined_at: asString(v2Item.status.defined_at),
+            preparing_at: asString(v2Item.status.preparing_at),
+            prepared_at: asString(v2Item.status.prepared_at),
+            starting_at: asString(v2Item.status.starting_at),
+            started_at: asString(v2Item.status.started_at),
+            stopping_at: asString(v2Item.status.stopping_at),
+            stopped_at: asString(v2Item.status.stopped_at)
+          }
+        : null
+    }
+  }
+
+  return {
+    crnUrl,
+    version: 'v1',
+    networking: {
+      ipv4: networking && 'ipv4' in networking ? asString(networking.ipv4) : null,
+      ipv6: networking && 'ipv6' in networking ? asString(networking.ipv6) : null
+    },
+    status: null
   }
 }
 

@@ -27,6 +27,7 @@ That client should remain small and stable. It currently owns:
 - 2n6 web access lookup
 - message envelope lookup
 - scheduler allocation lookup
+- CRN execution list lookup and normalization
 - CRN allocation notify
 - relay setup-server configure request
 - deployment result inspection and polling

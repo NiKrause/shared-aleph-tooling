@@ -7,10 +7,12 @@ import {
   createAlephBrowserClient,
   fetchBalance,
   fetch2n6WebAccessUrl,
+  fetchCrnExecutionMap,
   fetchCrns,
   fetchInstances,
   fetchMessageEnvelope,
   notifyCrnAllocation,
+  normalizeExecution,
   fetchSchedulerAllocation,
   inspectDeploymentResult,
   normalizeMessageStatus,
@@ -222,6 +224,128 @@ test('fetch2n6WebAccessUrl returns null for missing 2n6 records', async () => {
   } finally {
     globalThis.fetch = originalFetch
   }
+})
+
+test('fetchCrnExecutionMap prefers v2 execution lists and reports the version', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    const calls = []
+    globalThis.fetch = async (input) => {
+      calls.push(String(input))
+      return new Response(JSON.stringify({ ['a'.repeat(64)]: { networking: { host_ipv4: '203.0.113.10' } } }), {
+        status: 200
+      })
+    }
+
+    const result = await fetchCrnExecutionMap('https://selected-crn.example/')
+    assert.equal(calls.length, 1)
+    assert.match(calls[0], /^https:\/\/selected-crn\.example\/v2\/about\/executions\/list(?:\?_ts=\d+)?$/)
+    assert.equal(result.blocked, false)
+    assert.equal(result.version, 'v2')
+    assert.equal(result.requestUrl, 'https://selected-crn.example/v2/about/executions/list')
+    assert.equal(typeof result.payload, 'object')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('fetchCrnExecutionMap falls back to v1 when the v2 endpoint is missing', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    let callIndex = 0
+    globalThis.fetch = async () => {
+      callIndex += 1
+      if (callIndex === 1) {
+        return new Response('', { status: 404 })
+      }
+
+      return new Response(JSON.stringify({ ['b'.repeat(64)]: { networking: { ipv4: '198.51.100.10' } } }), {
+        status: 200
+      })
+    }
+
+    const result = await fetchCrnExecutionMap('https://selected-crn.example')
+    assert.equal(result.blocked, false)
+    assert.equal(result.version, 'v1')
+    assert.equal(result.requestUrl, 'https://selected-crn.example/about/executions/list')
+    assert.equal(typeof result.payload, 'object')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('fetchCrnExecutionMap treats browser-blocked CRN requests as blocked', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    globalThis.fetch = async () => {
+      throw new TypeError('Failed to fetch')
+    }
+
+    const result = await fetchCrnExecutionMap('https://selected-crn.example')
+    assert.equal(result.blocked, true)
+    assert.equal(result.version, 'v2')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('normalizeExecution maps v2 execution payloads into shared runtime shape', () => {
+  const execution = normalizeExecution(
+    {
+      networking: {
+        host_ipv4: '149.86.227.106',
+        ipv4_ip: '172.16.7.2',
+        mapped_ports: {
+          '22': {
+            host: 24008,
+            tcp: true,
+            udp: false
+          }
+        }
+      },
+      web_access: {
+        url: 'dragon-belt-friend-share.2n6.me'
+      },
+      status: {
+        started_at: '2026-04-24T15:56:47Z'
+      },
+      running: true
+    },
+    'https://selected-crn.example'
+  )
+
+  assert.deepEqual(execution, {
+    crnUrl: 'https://selected-crn.example',
+    version: 'v2',
+    running: true,
+    networking: {
+      ipv4_network: null,
+      host_ipv4: '149.86.227.106',
+      ipv6_network: null,
+      ipv6_ip: null,
+      ipv4_ip: '172.16.7.2',
+      proxy_url: 'https://dragon-belt-friend-share.2n6.me',
+      mapped_ports: {
+        '22': {
+          host: 24008,
+          tcp: true,
+          udp: false
+        }
+      }
+    },
+    status: {
+      defined_at: null,
+      preparing_at: null,
+      prepared_at: null,
+      starting_at: null,
+      started_at: '2026-04-24T15:56:47Z',
+      stopping_at: null,
+      stopped_at: null
+    }
+  })
 })
 
 test('fetchSchedulerAllocation requests the scheduler allocation endpoint and normalizes the response', async () => {

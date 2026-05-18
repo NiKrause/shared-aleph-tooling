@@ -162,6 +162,49 @@ export interface InstanceAllocation {
   period?: InstanceAllocationPeriod | null
 }
 
+export interface InstancePortMapping {
+  host?: number
+  tcp?: boolean
+  udp?: boolean
+}
+
+export interface InstanceExecutionStatus {
+  defined_at?: string | null
+  preparing_at?: string | null
+  prepared_at?: string | null
+  starting_at?: string | null
+  started_at?: string | null
+  stopping_at?: string | null
+  stopped_at?: string | null
+}
+
+export interface InstanceExecutionNetworking {
+  ipv4?: string | null
+  ipv6?: string | null
+  ipv4_network?: string | null
+  host_ipv4?: string | null
+  ipv6_network?: string | null
+  ipv6_ip?: string | null
+  ipv4_ip?: string | null
+  proxy_url?: string | null
+  mapped_ports?: Record<string, InstancePortMapping>
+}
+
+export interface InstanceExecution {
+  crnUrl: string
+  version: 'v1' | 'v2'
+  running?: boolean
+  networking: InstanceExecutionNetworking
+  status?: InstanceExecutionStatus | null
+}
+
+export interface CrnExecutionLookupResult {
+  payload: Record<string, unknown> | null
+  blocked: boolean
+  requestUrl?: string
+  version?: 'v1' | 'v2'
+}
+
 export interface AllocationNotifyResult {
   status: 'confirmed' | 'unconfirmed'
 }
@@ -219,6 +262,7 @@ export interface AlephBrowserClient {
   fetch2n6WebAccessUrl(itemHash: string): Promise<string | null>
   fetchMessageEnvelope(itemHash: string): Promise<AlephMessageEnvelope | null>
   fetchSchedulerAllocation(itemHash: string): Promise<InstanceAllocation | null>
+  fetchCrnExecutionMap(crnUrl: string): Promise<CrnExecutionLookupResult>
   notifyCrnAllocation(crnUrl: string, itemHash: string): Promise<AllocationNotifyResult>
   configureOrbitdbRelaySetup(args: RelaySetupRequest): Promise<RelaySetupResult>
   inspectDeploymentResult(itemHash: string, rootfsRef?: string): Promise<DeploymentInspectionResult>

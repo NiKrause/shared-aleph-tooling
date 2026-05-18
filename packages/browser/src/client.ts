@@ -8,6 +8,7 @@ import {
   DEFAULT_ALEPH_SCHEDULER_API_HOST,
   fetchBalance,
   fetch2n6WebAccessUrl,
+  fetchCrnExecutionMap,
   fetchCrns,
   fetchInstances,
   fetchMessageEnvelope,
@@ -52,6 +53,9 @@ export function createAlephBrowserClient(options: CreateAlephBrowserClientOption
     },
     fetchSchedulerAllocation(itemHash) {
       return fetchSchedulerAllocation(itemHash, schedulerApiHost)
+    },
+    fetchCrnExecutionMap(crnUrl) {
+      return fetchCrnExecutionMap(crnUrl)
     },
     notifyCrnAllocation(crnUrl, itemHash) {
       return notifyCrnAllocation(crnUrl, itemHash)
