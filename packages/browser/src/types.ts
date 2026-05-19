@@ -7,7 +7,18 @@ export interface BrowserPackagePlan {
 
 export const BROWSER_PACKAGE_PLAN: BrowserPackagePlan = {
   phase: 'scaffolded',
-  modules: ['http', 'aleph-api', 'rootfs', 'pricing']
+  modules: ['http', 'aleph-api', 'client', 'evm', 'rootfs', 'pricing']
+}
+
+export interface EthereumProviderLike {
+  request<T = unknown>(args: { method: string; params?: unknown[] | Record<string, unknown> }): Promise<T>
+}
+
+export interface EthereumTransactionRequest {
+  from: string
+  to: string
+  data?: `0x${string}`
+  value?: bigint
 }
 
 export type MessageStatus = 'processed' | 'pending' | 'rejected' | 'unknown'
