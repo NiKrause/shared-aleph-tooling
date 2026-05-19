@@ -5,6 +5,15 @@ export interface PortMapping {
 }
 
 export interface CrnSystemUsage {
+  cpu?: {
+    count?: number
+  }
+  mem?: {
+    available_kB?: number
+  }
+  disk?: {
+    available_kB?: number
+  }
   active?: boolean
 }
 

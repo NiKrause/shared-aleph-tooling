@@ -21,6 +21,12 @@ type CountryLookupPayload = {
   country?: unknown
 }
 
+export interface CrnCapacitySpec {
+  vcpus: number
+  memoryMiB: number
+  diskMiB: number
+}
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
 }
@@ -67,6 +73,19 @@ function compatibleCrns(crns: ReadonlyArray<CrnRecord>, excludedHashes: Readonly
   })
 }
 
+function hasCrnCapacity(crn: CrnRecord, spec: CrnCapacitySpec | null | undefined): boolean {
+  if (!spec) return true
+
+  const usage = crn.system_usage
+  if (!usage) return true
+
+  const cpuOk = usage.cpu?.count == null || usage.cpu.count >= spec.vcpus
+  const memoryOk = usage.mem?.available_kB == null || usage.mem.available_kB >= spec.memoryMiB * 1024
+  const diskOk = usage.disk?.available_kB == null || usage.disk.available_kB >= spec.diskMiB * 1024
+
+  return cpuOk && memoryOk && diskOk
+}
+
 function scoreSortedCrns(crns: ReadonlyArray<CrnRecord>): CrnRecord[] {
   return [...crns].sort((left, right) => {
     const rightScore = typeof right.score === 'number' ? right.score : Number(right.score ?? Number.NEGATIVE_INFINITY)
@@ -77,6 +96,18 @@ function scoreSortedCrns(crns: ReadonlyArray<CrnRecord>): CrnRecord[] {
     const rightName = (right.name || right.address || right.hash).toLowerCase()
     return leftName.localeCompare(rightName)
   })
+}
+
+export function filterDeployableCrns(
+  crns: ReadonlyArray<CrnRecord>,
+  options: {
+    excludedHashes?: ReadonlyArray<string>
+    spec?: CrnCapacitySpec | null
+  } = {}
+): CrnRecord[] {
+  return scoreSortedCrns(
+    compatibleCrns(crns, options.excludedHashes).filter((crn) => hasCrnCapacity(crn, options.spec))
+  )
 }
 
 async function resolveHostIp(
@@ -213,10 +244,10 @@ export async function listGeocodedCrns(options: {
   dnsResolveUrl?: string
   countryLookupBaseUrl?: string
 }): Promise<CrnRecord[]> {
-  const sortedCrns = scoreSortedCrns(compatibleCrns(await fetchCrns({
+  const sortedCrns = filterDeployableCrns(await fetchCrns({
     url: options.url,
     fetch: options.fetch
-  })))
+  }))
 
   const geocodedCrns = await enrichCrnsWithGeo(
     sortedCrns.slice(0, Math.max(1, Number(options.limit) || 30)),
@@ -245,7 +276,9 @@ export async function rankCandidateCrns(
 ): Promise<CrnRecord[]> {
   const preferredCountryCode = normalizeCountryCode(options.preferredCountryCode)
   const geoLimit = Math.max(1, Number(options.geoLimit) || 30)
-  const sortedCrns = scoreSortedCrns(compatibleCrns(crns, options.excludedHashes))
+  const sortedCrns = filterDeployableCrns(crns, {
+    excludedHashes: options.excludedHashes
+  })
   if (!preferredCountryCode || sortedCrns.length === 0) {
     return sortedCrns
   }

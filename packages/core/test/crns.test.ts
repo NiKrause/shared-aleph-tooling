@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   enrichCrnsWithGeo,
   fetchCrns,
+  filterDeployableCrns,
   listGeocodedCrns,
   rankCandidateCrns,
   selectPreferredCrn
@@ -102,6 +103,57 @@ test('listGeocodedCrns returns only compatible geocoded entries', async () => {
     result.map((entry) => entry.hash),
     ['geob', 'geoa']
   )
+})
+
+test('filterDeployableCrns keeps only active qemu-capable CRNs with enough capacity and sorts by score', () => {
+  const result = filterDeployableCrns(
+    [
+      { hash: 'inactive', name: 'Inactive', score: 99, system_usage: { active: false } },
+      { hash: 'no-qemu', name: 'No QEMU', score: 95, qemu_support: false },
+      {
+        hash: 'too-small',
+        name: 'Too Small',
+        score: 90,
+        system_usage: {
+          active: true,
+          cpu: { count: 1 },
+          mem: { available_kB: 1024 },
+          disk: { available_kB: 1024 }
+        }
+      },
+      {
+        hash: 'fit-high',
+        name: 'Fit High',
+        score: 92.1,
+        system_usage: {
+          active: true,
+          cpu: { count: 4 },
+          mem: { available_kB: 16 * 1024 * 1024 },
+          disk: { available_kB: 200 * 1024 * 1024 }
+        }
+      },
+      {
+        hash: 'fit-low',
+        name: 'Fit Low',
+        score: 71.5,
+        system_usage: {
+          active: true,
+          cpu: { count: 2 },
+          mem: { available_kB: 8 * 1024 * 1024 },
+          disk: { available_kB: 100 * 1024 * 1024 }
+        }
+      }
+    ],
+    {
+      spec: {
+        vcpus: 2,
+        memoryMiB: 2048,
+        diskMiB: 20480
+      }
+    }
+  )
+
+  assert.deepEqual(result.map((entry) => entry.name), ['Fit High', 'Fit Low'])
 })
 
 test('rankCandidateCrns prioritizes the preferred country while preserving score order otherwise', async () => {
