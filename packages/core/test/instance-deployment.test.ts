@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  createDeploymentIntent,
   createInstanceContent,
   createReleaseMetadata,
   createUnsignedInstanceMessage,
@@ -106,6 +107,54 @@ test('createUnsignedInstanceMessage builds an unsigned instance message using in
 
   assert.equal(message.type, 'INSTANCE')
   assert.equal(message.item_hash, 'instanceHash')
+})
+
+test('createDeploymentIntent hashes a deterministic deployment intent from unsigned message and content', async () => {
+  const content = createInstanceContent({
+    address: '0xabc',
+    name: 'uc-go-peer',
+    sshPublicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG9A7L1fCP0f3dYxFJ0P0XrJ1hV6X4kRrS0vQd2c8mS0 user@example',
+    rootfsItemHash: '380b99e0577fb7771f1b3c0a369f4abff9094e9205b0b466783453299ef9f4f2',
+    rootfsSizeMiB: 20480,
+    vcpus: 1,
+    memoryMiB: 1024,
+    crnHash: 'crnHash',
+    now: 123
+  })
+
+  const unsignedMessage = await createUnsignedInstanceMessage({
+    sender: '0xabc',
+    content,
+    hasher: async () => 'instanceHash',
+    now: 123
+  })
+
+  const envelope = await createDeploymentIntent({
+    sender: '0xabc',
+    unsignedMessage,
+    content,
+    computeUnits: 1,
+    expiresAt: 456,
+    maxCost: '14250',
+    hasher: async (payload) => `intent:${payload}`
+  })
+
+  assert.deepEqual(envelope.intent, {
+    ownerAddress: '0xabc',
+    messageTime: 123,
+    itemHash: 'instanceHash',
+    paymentType: 'credit',
+    rootfsRef: '380b99e0577fb7771f1b3c0a369f4abff9094e9205b0b466783453299ef9f4f2',
+    rootfsSizeMiB: 20480,
+    computeUnits: 1,
+    vcpus: 1,
+    memoryMiB: 1024,
+    crnHash: 'crnHash',
+    channel: 'TEST',
+    expiresAt: 456,
+    maxCost: '14250'
+  })
+  assert.equal(envelope.intentHash, `intent:${JSON.stringify(envelope.intent)}`)
 })
 
 test('deployInstance composes hashing, signing, and broadcast into a deployment result', async () => {

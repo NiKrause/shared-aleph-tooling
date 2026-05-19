@@ -81,6 +81,27 @@ export interface AlephInstanceContent {
   }
 }
 
+export interface DeploymentIntent {
+  ownerAddress: string
+  messageTime: number
+  itemHash: string
+  paymentType: string
+  rootfsRef: string
+  rootfsSizeMiB: number
+  computeUnits: number
+  vcpus: number
+  memoryMiB: number
+  crnHash: string | null
+  channel: string
+  expiresAt: number
+  maxCost: string
+}
+
+export interface DeploymentIntentEnvelope {
+  intent: DeploymentIntent
+  intentHash: string
+}
+
 export interface MessageInspectionResult {
   status: 'processed' | 'pending' | 'rejected' | 'unknown'
   errorCode: number | null

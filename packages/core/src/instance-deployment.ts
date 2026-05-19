@@ -1,6 +1,7 @@
 import type {
   AlephBroadcastMessage,
   AlephInstanceContent,
+  DeploymentIntentEnvelope,
   DeploymentResult,
   MessageHasher,
   MessageSigner
@@ -117,6 +118,37 @@ export async function createUnsignedInstanceMessage(args: {
     item_content: itemContent,
     time: args.now ?? Date.now() / 1000,
     channel: args.channel ?? DEFAULT_ALEPH_CHANNEL
+  }
+}
+
+export async function createDeploymentIntent(args: {
+  sender: string
+  unsignedMessage: Omit<AlephBroadcastMessage, 'signature'>
+  content: AlephInstanceContent
+  computeUnits: number
+  expiresAt: number
+  maxCost: string
+  hasher: MessageHasher
+}): Promise<DeploymentIntentEnvelope> {
+  const intent = {
+    ownerAddress: args.sender,
+    messageTime: args.unsignedMessage.time,
+    itemHash: args.unsignedMessage.item_hash,
+    paymentType: args.content.payment.type,
+    rootfsRef: args.content.rootfs.parent.ref,
+    rootfsSizeMiB: args.content.rootfs.size_mib,
+    computeUnits: args.computeUnits,
+    vcpus: args.content.resources.vcpus,
+    memoryMiB: args.content.resources.memory,
+    crnHash: args.content.requirements?.node?.node_hash ?? null,
+    channel: args.unsignedMessage.channel,
+    expiresAt: args.expiresAt,
+    maxCost: args.maxCost
+  } as const
+
+  return {
+    intent,
+    intentHash: await args.hasher(JSON.stringify(intent))
   }
 }
 
