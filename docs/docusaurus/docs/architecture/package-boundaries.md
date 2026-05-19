@@ -100,6 +100,7 @@ Keep local to apps for now:
 See also:
 
 - `browser-extraction-plan`
+- `examples-and-integrations`
 
 ## `@le-space/rootfs`
 

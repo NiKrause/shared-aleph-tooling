@@ -84,10 +84,15 @@ Current real references include:
 - `aleph-libp2p-relay`
   - especially `relay-deployer-pwa` as the browser/PWA reference consumer
 
+See also:
+
+- [Examples And Real Integrations](../architecture/examples-and-integrations.md)
+
 ## Recommended Reading Order
 
 1. [Package Boundaries](../architecture/package-boundaries.md)
-2. [Deployment Lifecycle](../architecture/deployment-lifecycle.md)
-3. [GitHub Action Reference](../reference/github-action.md)
-4. [Rootfs Contract Reference](../reference/rootfs-contract.md)
-5. [Reusable Workflow Reference](../reference/reusable-workflow.md)
+2. [Examples And Real Integrations](../architecture/examples-and-integrations.md)
+3. [Deployment Lifecycle](../architecture/deployment-lifecycle.md)
+4. [GitHub Action Reference](../reference/github-action.md)
+5. [Rootfs Contract Reference](../reference/rootfs-contract.md)
+6. [Reusable Workflow Reference](../reference/reusable-workflow.md)
