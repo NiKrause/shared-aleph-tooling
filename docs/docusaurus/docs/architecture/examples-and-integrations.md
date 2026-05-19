@@ -76,6 +76,9 @@ Use it to understand:
 - how browser-safe deployment logic moves into `@le-space/browser`
 - how prepaid and AA-wallet policy can stay local while protocol helpers are
   shared
+- how target-specific RootFS profiles can share the same configure -> AutoTLS
+  -> metadata lifecycle while keeping daemon-specific bootstrap and proxy
+  behavior local
 
 ## What Does Not Belong In `examples/`
 
