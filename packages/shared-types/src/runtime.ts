@@ -30,7 +30,6 @@ export interface CrnRecord {
   resolved_ip?: string | null
   geo_source?: string | null
   system_usage?: CrnSystemUsage | null
-  [key: string]: unknown
 }
 
 export type ReferenceStatus = 'processed' | 'pending' | 'rejected' | 'unknown' | 'missing'
