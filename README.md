@@ -100,6 +100,18 @@ Useful references:
 - [docs/docusaurus/docs/architecture/package-boundaries.md](./docs/docusaurus/docs/architecture/package-boundaries.md)
 - [docs/docusaurus/docs/reference/github-action.md](./docs/docusaurus/docs/reference/github-action.md)
 
+## Examples And Real Integrations
+
+The `examples/` directory contains thin reference skeletons and integration
+shapes. It is not intended to host full production applications.
+
+Canonical real integrations currently include:
+
+- `universal-connectivity`
+  - especially the Aleph workflow integration proposed in PR `#344`
+- `aleph-libp2p-relay`
+  - especially `relay-deployer-pwa` as the browser/PWA integration reference
+
 ## Publishing And Setup
 
 - package publishing notes: [PUBLISHING.md](./PUBLISHING.md)

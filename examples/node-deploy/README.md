@@ -1,7 +1,7 @@
 # Node Deploy Example
 
-This example directory is reserved for a future headless Node deployment flow
-using `@le-space/node`.
+This example directory is for a headless Node deployment flow using
+`@le-space/node`.
 
 The target example should demonstrate:
 
@@ -9,3 +9,5 @@ The target example should demonstrate:
 - deploy-plan parsing
 - shared deploy execution
 - runtime and verification output handling outside GitHub Actions
+
+This should stay a thin reference shape, not a full deployment application.

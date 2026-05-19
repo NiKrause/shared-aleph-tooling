@@ -69,6 +69,21 @@ Some parts are still intentionally incomplete:
 - `.github/workflows/aleph-rootfs-build-publish-deploy.yml`
   Shared Aleph workflow entrypoint.
 
+## Examples And Real Integrations
+
+The `examples/` directory is for thin reference skeletons and integration
+shapes. It should not become a home for copied full applications.
+
+Real integrations stay in their own repositories and are linked from docs as
+canonical references.
+
+Current real references include:
+
+- `universal-connectivity`
+  - especially the Aleph integration work in PR `#344`
+- `aleph-libp2p-relay`
+  - especially `relay-deployer-pwa` as the browser/PWA reference consumer
+
 ## Recommended Reading Order
 
 1. [Package Boundaries](../architecture/package-boundaries.md)
