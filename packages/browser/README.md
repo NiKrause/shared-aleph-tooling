@@ -37,6 +37,13 @@ Lower-level helper functions remain exported too, but new extractions should
 prefer hanging reusable behavior off the client surface unless there is a good
 reason to keep them as standalone utilities.
 
+The package also exports lower-level browser/EVM helpers for:
+
+- `ethCall`
+- `sendTransaction`
+- `personalSign`
+- prepaid vault reads and transaction helpers
+
 ## Planned v1 Scope
 
 The first real extraction wave should cover:
@@ -57,13 +64,15 @@ The first real extraction wave should cover:
   - RootFS reference resolution
 - `pricing.ts`
   - instance pricing fetch and parse helpers
+- `prepaid.ts`
+  - reusable prepaid vault protocol helpers
 
 ## Not In Scope Initially
 
 These should remain local to apps until the browser package has a stable base:
 
 - wallet-provider integrations
-- prepaid vault flows
+- prepaid enforcement policy and wallet UX
 - UI-only formatting helpers
 - Svelte state orchestration
 

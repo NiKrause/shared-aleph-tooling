@@ -21,6 +21,33 @@ export interface EthereumTransactionRequest {
   value?: bigint
 }
 
+export type PaymentChain = 'BASE' | 'AVAX' | 'ETH'
+
+export interface EvmChainConfig {
+  alephChain: PaymentChain
+  chainIdHex: `0x${string}`
+  chainName: string
+  rpcUrls: string[]
+  blockExplorerUrls: string[]
+  nativeCurrency: { name: string; symbol: string; decimals: number }
+}
+
+export interface PrepaidReservation {
+  intentHash: string
+  ownerAddress: string
+  reservedAmount: bigint
+  expiresAt: number
+  consumed: boolean
+  expired: boolean
+}
+
+export interface PrepaidVaultSnapshot {
+  totalDeposited: bigint
+  availableBalance: bigint
+  reservedBalance: bigint
+  currentReservation: PrepaidReservation | null
+}
+
 export type MessageStatus = 'processed' | 'pending' | 'rejected' | 'unknown'
 export type ReferenceStatus = MessageStatus | 'missing'
 export type AlephSenderChain = 'ETH'
