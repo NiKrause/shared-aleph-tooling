@@ -81,6 +81,10 @@ pnpm test
 
 Useful commands:
 
+- `pnpm aleph help`
+- `pnpm aleph deploy`
+- `pnpm aleph rootfs-publish`
+- `pnpm exec shared-aleph list-crns | jq`
 - `pnpm --filter @le-space/core test`
 - `pnpm --filter @le-space/node test`
 - `pnpm docs:dev`
@@ -99,6 +103,27 @@ Useful references:
 - [docs/docusaurus/docs/overview/index.md](./docs/docusaurus/docs/overview/index.md)
 - [docs/docusaurus/docs/architecture/package-boundaries.md](./docs/docusaurus/docs/architecture/package-boundaries.md)
 - [docs/docusaurus/docs/reference/github-action.md](./docs/docusaurus/docs/reference/github-action.md)
+- [docs/docusaurus/docs/reference/node-cli.md](./docs/docusaurus/docs/reference/node-cli.md)
+
+## Command Line
+
+You can run the shared Node-side deployment and RootFS flows locally through a
+small CLI wrapper:
+
+```bash
+pnpm aleph help
+pnpm aleph deploy
+pnpm aleph rootfs-publish
+```
+
+This CLI is a thin wrapper around the shared Node runners and uses the same
+deployment logic as the shared action/workflow layers.
+
+For machine-readable JSON output without the extra `pnpm run` banner, prefer:
+
+```bash
+node ./scripts/aleph-cli.mjs list-crns | jq
+```
 
 ## Support
 
@@ -116,6 +141,8 @@ Canonical real integrations currently include:
   - especially the Aleph workflow integration proposed in PR `#344`
 - `aleph-libp2p-relay`
   - especially `relay-deployer-pwa` as the browser/PWA integration reference
+  - including the OrbitDB relay RootFS path where a single public Caddy-backed
+    hostname serves HTTPS helper endpoints and secure libp2p WSS transport
 
 ## Publishing And Setup
 

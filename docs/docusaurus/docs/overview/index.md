@@ -33,6 +33,7 @@ The repository currently contains working Aleph-specific support for:
 - `uc-go-peer` guest configuration and verification
 - Node-side Aleph runners used by GitHub Actions
 - a shared `aleph-vm-deploy` GitHub Action
+- a local Node CLI wrapper for the same shared runner paths
 
 ## What Is Still In Progress
 
@@ -87,12 +88,15 @@ Current real references include:
 See also:
 
 - [Examples And Real Integrations](../architecture/examples-and-integrations.md)
+- [Browser Guest Setup Refactor Plan](../architecture/browser-guest-setup-refactor-plan.md)
 
 ## Recommended Reading Order
 
 1. [Package Boundaries](../architecture/package-boundaries.md)
 2. [Examples And Real Integrations](../architecture/examples-and-integrations.md)
-3. [Deployment Lifecycle](../architecture/deployment-lifecycle.md)
-4. [GitHub Action Reference](../reference/github-action.md)
-5. [Rootfs Contract Reference](../reference/rootfs-contract.md)
-6. [Reusable Workflow Reference](../reference/reusable-workflow.md)
+3. [Browser Guest Setup Refactor Plan](../architecture/browser-guest-setup-refactor-plan.md)
+4. [Deployment Lifecycle](../architecture/deployment-lifecycle.md)
+5. [Node CLI Reference](../reference/node-cli.md)
+6. [GitHub Action Reference](../reference/github-action.md)
+7. [Rootfs Contract Reference](../reference/rootfs-contract.md)
+8. [Reusable Workflow Reference](../reference/reusable-workflow.md)

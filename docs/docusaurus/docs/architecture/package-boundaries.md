@@ -101,6 +101,7 @@ See also:
 
 - `browser-extraction-plan`
 - `examples-and-integrations`
+- `browser-guest-setup-refactor-plan`
 
 ## `@le-space/rootfs`
 

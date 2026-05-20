@@ -79,6 +79,8 @@ Use it to understand:
 - how target-specific RootFS profiles can share the same configure -> AutoTLS
   -> metadata lifecycle while keeping daemon-specific bootstrap and proxy
   behavior local
+- how the OrbitDB relay target exposes HTTPS helper endpoints and secure
+  libp2p WSS transport through the same public Caddy-backed hostname
 
 ## What Does Not Belong In `examples/`
 
