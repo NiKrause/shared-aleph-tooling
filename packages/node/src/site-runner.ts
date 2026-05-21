@@ -4,7 +4,7 @@ import { createHash } from "node:crypto"
 import { readFile, readdir } from "node:fs/promises"
 import { join, relative } from "node:path"
 
-import { broadcastAlephMessage, normalizeBroadcastStatus, publishAggregateKey, signAlephMessage } from "../../core/src/index.ts"
+import { broadcastAlephMessage, forgetAlephMessages, normalizeBroadcastStatus, publishAggregateKey, signAlephMessage } from "../../core/src/index.ts"
 import { inspectMessageResult } from "../../core/src/deployment-inspection.ts"
 
 import { optionalEnv, requiredEnv } from "./env.ts"
@@ -230,6 +230,19 @@ export async function uploadStaticSiteDirectory(directory: string, gateway: stri
   }
 }
 
+interface AlephMessageListEntry {
+  item_hash?: unknown
+  time?: unknown
+  sender?: unknown
+  item_content?: unknown
+  content?: unknown
+}
+
+interface ScopedSiteStoreRecord {
+  itemHash: string
+  time: number
+}
+
 function mergedAddrs(env: NodeJS.ProcessEnv = process.env): string[] {
   const combined: string[] = []
   for (const key of ['PROBE_MULTIADDRS_JSON', 'BROWSER_BOOTSTRAP_MULTIADDRS_JSON']) {
@@ -246,6 +259,109 @@ function mergedAddrs(env: NodeJS.ProcessEnv = process.env): string[] {
 
 function defaultHasher(payload: string): string {
   return createHash('sha256').update(payload).digest('hex')
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> | null {
+  if (!value) return null
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      return parseJsonRecord(parsed)
+    } catch {
+      return null
+    }
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return null
+}
+
+function parseMessageTime(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+async function fetchScopedSiteStoreRecords(args: {
+  sender: string
+  ref: string
+  apiHost: string
+}): Promise<ScopedSiteStoreRecord[]> {
+  const requestUrl = new URL('/api/v0/messages.json', args.apiHost)
+  requestUrl.searchParams.set('msgTypes', 'STORE')
+  requestUrl.searchParams.set('addresses', args.sender)
+  requestUrl.searchParams.set('message_statuses', 'processed,pending')
+  requestUrl.searchParams.set('pagination', '100')
+  requestUrl.searchParams.set('page', '1')
+  requestUrl.searchParams.set('sortOrder', '-1')
+
+  const response = await fetch(requestUrl, { cache: 'no-cache' })
+  if (!response.ok) {
+    throw new Error(`Aleph STORE list request failed: ${response.status}`)
+  }
+
+  const payload = (await response.json()) as { messages?: AlephMessageListEntry[] }
+  const messages = Array.isArray(payload.messages) ? payload.messages : []
+
+  return messages.flatMap((message) => {
+    const itemHash = typeof message.item_hash === 'string' && message.item_hash.trim() ? message.item_hash : null
+    if (!itemHash) return []
+    const itemContent = parseJsonRecord(message.item_content) ?? parseJsonRecord(message.content)
+    if (!itemContent) return []
+    if (itemContent.item_type !== 'ipfs') return []
+    if (itemContent.ref !== args.ref) return []
+    return [{
+      itemHash,
+      time: Math.max(parseMessageTime(message.time), parseMessageTime(itemContent.time)),
+    }]
+  })
+}
+
+async function retainRecentSiteStores(args: {
+  currentItemHash: string
+  env?: NodeJS.ProcessEnv
+}): Promise<void> {
+  const env = args.env ?? process.env
+  const keepCount = Number(optionalEnv('ALEPH_SITE_RETENTION_KEEP_COUNT', '0', env))
+  if (!Number.isFinite(keepCount) || keepCount <= 0) return
+
+  const ref = optionalEnv('ALEPH_SITE_REF', '', env).trim()
+  if (!ref) {
+    throw new Error('ALEPH_SITE_RETENTION_KEEP_COUNT requires ALEPH_SITE_REF so retention only forgets uploads for one site.')
+  }
+
+  const privateKey = requiredEnv('ALEPH_PRIVATE_KEY', env)
+  const apiHost = optionalEnv('ALEPH_SITE_ALEPH_API_HOST', 'https://api2.aleph.im', env)
+  const channel = optionalEnv('ALEPH_SITE_CHANNEL', 'TEST', env)
+  const identity = await createPrivateKeyIdentity(privateKey)
+  const records = await fetchScopedSiteStoreRecords({
+    sender: identity.address,
+    ref,
+    apiHost,
+  })
+
+  const overflowHashes = records
+    .filter((record) => record.itemHash !== args.currentItemHash)
+    .sort((left, right) => right.time - left.time)
+    .slice(Math.max(keepCount - 1, 0))
+    .map((record) => record.itemHash)
+
+  if (overflowHashes.length === 0) return
+
+  const result = await forgetAlephMessages({
+    sender: identity.address,
+    hashes: overflowHashes,
+    reason: `Retain only the latest ${keepCount} site upload(s) for ${ref}`,
+    signer: identity.signer,
+    hasher: async (payload) => defaultHasher(payload),
+    fetch,
+    channel,
+    apiHost,
+    sync: true,
+  })
+
+  if (result.status === 'rejected') {
+    throw new Error(`Aleph site retention forget was rejected: ${JSON.stringify(result.response ?? {})}`)
+  }
 }
 
 async function pinIpfsCidOnAleph(cidV0: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
@@ -309,6 +425,7 @@ export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): 
     itemHash = await pinIpfsCidOnAleph(cidV0, env)
     await appendGithubOutput('item_hash', itemHash, env)
     await waitForAlephMessage(itemHash, env)
+    await retainRecentSiteStores({ currentItemHash: itemHash, env })
   }
 
   await appendGithubSummary([

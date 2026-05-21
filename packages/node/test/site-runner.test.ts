@@ -228,6 +228,86 @@ test('runSitePublishMode pins the CID through the direct Aleph REST API', async 
   assert.equal(calls.filter((call) => call.url === 'https://api2.aleph.im/api/v0/messages').length, 1)
 })
 
+test('runSitePublishMode forgets older STORE messages for the same ALEPH_SITE_REF only', async () => {
+  const { dir, outputFile, summaryFile } = await createOutputEnv('site-publish-retention-')
+  const siteDir = join(dir, 'dist')
+  await mkdir(siteDir, { recursive: true })
+  await writeFile(join(siteDir, 'index.html'), '<!doctype html><title>blog</title>')
+
+  const originalFetch = globalThis.fetch
+  const calls: Array<{ url: string; init?: RequestInit }> = []
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    calls.push({ url, init })
+    if (url.startsWith('https://ipfs-2.aleph.im/api/v0/add')) {
+      return new Response(JSON.stringify({ Name: '', Hash: 'QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    if (url === 'https://api2.aleph.im/api/v0/messages' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body ?? '{}')) as { message?: { type?: string; item_content?: string } }
+      const message = body.message ?? {}
+      if (message.type === 'STORE') {
+        return new Response(JSON.stringify({ item_hash: 'store123' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (message.type === 'FORGET') {
+        const itemContent = JSON.parse(String(message.item_content ?? '{}')) as { hashes?: string[] }
+        assert.deepEqual(itemContent.hashes, ['old-2', 'old-3'])
+        return new Response(JSON.stringify({ item_hash: 'forget123', message_status: 'processed' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+    }
+    if (url === 'https://api2.aleph.im/api/v0/messages/store123') {
+      return new Response(JSON.stringify({ status: 'processed' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    if (url.startsWith('https://api2.aleph.im/api/v0/messages.json?')) {
+      const parsedUrl = new URL(url)
+      assert.equal(parsedUrl.searchParams.get('msgTypes'), 'STORE')
+      assert.equal(parsedUrl.searchParams.get('pagination'), '100')
+      return new Response(JSON.stringify({
+        messages: [
+          { item_hash: 'store123', time: 500, item_content: JSON.stringify({ item_type: 'ipfs', item_hash: 'QmCurrent', ref: 'orbit-blog-prod', time: 500 }) },
+          { item_hash: 'old-1', time: 400, item_content: JSON.stringify({ item_type: 'ipfs', item_hash: 'QmOld1', ref: 'orbit-blog-prod', time: 400 }) },
+          { item_hash: 'old-2', time: 300, item_content: JSON.stringify({ item_type: 'ipfs', item_hash: 'QmOld2', ref: 'orbit-blog-prod', time: 300 }) },
+          { item_hash: 'other-app', time: 250, item_content: JSON.stringify({ item_type: 'ipfs', item_hash: 'QmOther', ref: 'uc-prod', time: 250 }) },
+          { item_hash: 'old-3', time: 200, item_content: JSON.stringify({ item_type: 'ipfs', item_hash: 'QmOld3', ref: 'orbit-blog-prod', time: 200 }) },
+        ],
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    throw new Error(`Unexpected fetch call: ${url}`)
+  }) as typeof fetch
+
+  try {
+    await runSitePublishMode({
+      GITHUB_OUTPUT: outputFile,
+      GITHUB_STEP_SUMMARY: summaryFile,
+      ALEPH_SITE_PROJECT_DIR: dir,
+      ALEPH_SITE_DIRECTORY: siteDir,
+      ALEPH_SITE_IPFS_GATEWAY: 'https://ipfs-2.aleph.im',
+      ALEPH_PRIVATE_KEY: '0x59c6995e998f97a5a0044966f0945382d7d3a2ab6c4b71a0f5f5d5b6d7e8f901',
+      ALEPH_SITE_PIN: 'true',
+      ALEPH_SITE_REF: 'orbit-blog-prod',
+      ALEPH_SITE_RETENTION_KEEP_COUNT: '2',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.equal(calls.filter((call) => call.url === 'https://api2.aleph.im/api/v0/messages').length, 2)
+})
+
 test('parseLastJsonObject parses multiline trailing JSON output', () => {
   const payload = parseLastJsonObject('prefix\n{\n  "item_hash": "abc123",\n  "content": {\n    "item_hash": "QmExample"\n  }\n}')
   assert.equal(payload.item_hash, 'abc123')
