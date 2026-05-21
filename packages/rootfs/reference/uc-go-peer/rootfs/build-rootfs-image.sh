@@ -28,6 +28,7 @@ require go
 
 cleanup() {
   if [ -n "${ROOTFS_BUILD_TMPDIR}" ] && [ -d "${ROOTFS_BUILD_TMPDIR}" ]; then
+    chmod -R u+w "${ROOTFS_BUILD_TMPDIR}" 2>/dev/null || true
     rm -rf "${ROOTFS_BUILD_TMPDIR}"
   fi
 }
