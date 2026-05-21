@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, writeFile, access } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 
@@ -26,6 +27,15 @@ const publishTargets = [
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, 'utf8'))
+}
+
+async function pathExists(path) {
+  try {
+    await access(path, constants.F_OK)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function normalizeDependencies(dependencies, versionsByName) {
@@ -98,7 +108,10 @@ async function main() {
 
     if (packageJson.name === '@le-space/node') {
       await cp(join(packagesDir, 'rootfs', 'reference'), join(distDir, 'reference'), { recursive: true })
-      await cp(join(packageRoot, 'reference'), join(distDir, 'reference'), { recursive: true })
+      const nodeReferenceDir = join(packageRoot, 'reference')
+      if (await pathExists(nodeReferenceDir)) {
+        await cp(nodeReferenceDir, join(distDir, 'reference'), { recursive: true })
+      }
     }
   }
 }
