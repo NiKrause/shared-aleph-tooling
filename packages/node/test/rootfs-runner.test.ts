@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,7 +9,7 @@ import { emitRootfsOutputs, parseRootfsRunnerInputs, runRootfsMode } from '../sr
 
 const rootfsContractPath = fileURLToPath(new URL('../../rootfs/reference/uc-go-peer/contract.json', import.meta.url))
 
-async function createActionEnv(prefix: string) {
+async function createActionEnv(prefix: string, projectDir = '/workspace/universal-connectivity') {
   const dir = await mkdtemp(join(tmpdir(), prefix))
   const outputFile = join(dir, 'output.txt')
   const summaryFile = join(dir, 'summary.txt')
@@ -17,7 +17,7 @@ async function createActionEnv(prefix: string) {
     env: {
       GITHUB_OUTPUT: outputFile,
       GITHUB_STEP_SUMMARY: summaryFile,
-      ALEPH_ROOTFS_PROJECT_DIR: '/workspace/universal-connectivity',
+      ALEPH_ROOTFS_PROJECT_DIR: projectDir,
       ALEPH_ROOTFS_CONTRACT_PATH: rootfsContractPath,
       ALEPH_ROOTFS_REFERENCE_ROOTFS_DIR: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
     },
@@ -180,68 +180,94 @@ test('emitRootfsOutputs writes shared rootfs publish outputs', async () => {
   assert.match(summary, /Aleph Rootfs Runner/)
 })
 
-test('runRootfsMode executes rootfs-publish and emits outputs', async () => {
-  const { env, outputFile } = await createActionEnv('shared-rootfs-publish-')
+test('runRootfsMode executes rootfs-publish and emits outputs through the direct JS publish path', async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), 'shared-rootfs-project-'))
+  const { env, outputFile } = await createActionEnv('shared-rootfs-publish-', projectDir)
   const writes: string[] = []
+  const originalFetch = globalThis.fetch
+  const calls: string[] = []
 
-  await runRootfsMode({
-    ...env,
-    ALEPH_VM_MODE: 'rootfs-publish',
-    ALEPH_ROOTFS_VERSION: 'uc-go-peer-git-20260516-deadbee',
-  }, {
-    stdout: (text) => writes.push(text),
-    publishRootfs: async (buildPlan) => ({
-      pipeline: {
-        buildPlan,
-        executionPlan: {
-          mode: 'docker',
-          reason: 'test',
-          referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
-          runCommand: { command: '/bin/bash', args: ['build-rootfs.sh'] },
-        },
-        publicationArtifacts: {
-          ipfsAddResponsePath: '/tmp/ipfs-add-response.jsonl',
-          storeMessagePath: '/tmp/store-message.json',
-          storeMessageStderrPath: '/tmp/store-message.stderr.log',
-        },
-        manifestPaths: {
-          primaryPath: '/workspace/universal-connectivity/go-peer/aleph/dist-rootfs/rootfs-manifest.json',
-          copyTargetPath: '/workspace/universal-connectivity/js-peer/public/rootfs/uc-go-peer/latest.json',
-          versionedTargetPath: '/workspace/universal-connectivity/js-peer/public/rootfs/uc-go-peer/uc-go-peer-git-20260516-deadbee.json',
-        },
+  globalThis.fetch = (async (input, init) => {
+    const url = String(input)
+    calls.push(url)
+    if (url === 'https://ipfs.aleph.cloud/api/v0/add') {
+      return new Response(JSON.stringify({
+        Name: 'aleph-uc-go-peer.qcow2',
+        Hash: 'bafyrootfs',
+        Size: '987654321',
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    if (url === 'https://ipfs.aleph.cloud/ipfs/bafyrootfs') {
+      assert.equal(init?.headers instanceof Headers ? init.headers.get('range') : (init?.headers as Record<string, string>)?.range, 'bytes=0-0')
+      return new Response('', { status: 206 })
+    }
+    if (url === 'https://api2.aleph.im/api/v0/messages') {
+      const body = JSON.parse(String(init?.body ?? '{}')) as { message?: { type?: string; item_content?: string; signature?: string } }
+      const message = body.message ?? {}
+      assert.equal(message.type, 'STORE')
+      const itemContent = JSON.parse(String(message.item_content ?? '{}')) as { item_type?: string; item_hash?: string }
+      assert.equal(itemContent.item_type, 'ipfs')
+      assert.equal(itemContent.item_hash, 'bafyrootfs')
+      return new Response(JSON.stringify({ item_hash: 'store-item-hash' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    if (url === 'https://api2.aleph.im/api/v0/messages/store-item-hash') {
+      return new Response(JSON.stringify({ status: 'processed' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+    throw new Error(`Unexpected fetch call: ${url}`)
+  }) as typeof fetch
+
+  try {
+    await runRootfsMode({
+      ...env,
+      ALEPH_VM_MODE: 'rootfs-publish',
+      ALEPH_ROOTFS_VERSION: 'uc-go-peer-git-20260516-deadbee',
+      ALEPH_ROOTFS_SKIP_UPLOAD: 'false',
+      ALEPH_PRIVATE_KEY: '0x59c6995e998f97a5a0044966f0945382d7d3a2ab6c4b71a0f5f5d5b6d7e8f901',
+    }, {
+      stdout: (text) => writes.push(text),
+      buildRootfs: async (buildPlan) => {
+        await mkdir(join(projectDir, 'go-peer/aleph/dist-rootfs'), { recursive: true })
+        await writeFile(buildPlan.imagePath, 'qcow2-binary')
+        return {
+          pipeline: {
+            buildPlan,
+            executionPlan: {
+              mode: 'docker',
+              reason: 'test',
+              referenceRootfsDir: '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+              runCommand: { command: '/bin/bash', args: ['build-rootfs.sh'] },
+            },
+            publicationArtifacts: {
+              ipfsAddResponsePath: '/tmp/ipfs-add-response.jsonl',
+              storeMessagePath: '/tmp/store-message.json',
+              storeMessageStderrPath: '/tmp/store-message.stderr.log',
+            },
+            manifestPaths: {
+              primaryPath: buildPlan.manifestPath,
+              copyTargetPath: buildPlan.latestManifestPath ?? undefined,
+              versionedTargetPath: buildPlan.versionedManifestPath ?? undefined,
+            },
+          },
+          executedCommands: [],
+        }
       },
-      executedCommands: [],
-      finalized: {
-        manifest: {
-          profile: 'uc-go-peer',
-          version: 'uc-go-peer-git-20260516-deadbee',
-          rootfsInstallStrategy: 'prebaked',
-          requiresBootstrapNetwork: false,
-          bootstrapSummary: 'Dependencies are preinstalled in the image.',
-          requiredPortForwards: [],
-          rootfsCid: 'bafyrootfs',
-          rootfsItemHash: 'store-item-hash',
-          rootfsSourceSizeBytes: 987654321,
-          rootfsSizeMiB: 20480,
-          createdAt: '2026-05-16T12:34:56Z',
-          notes: 'note',
-        },
-        manifestJson: '{"version":"uc-go-peer-git-20260516-deadbee"}',
-        manifestPaths: {
-          primaryPath: '/workspace/universal-connectivity/go-peer/aleph/dist-rootfs/rootfs-manifest.json',
-          copyTargetPath: '/workspace/universal-connectivity/js-peer/public/rootfs/uc-go-peer/latest.json',
-          versionedTargetPath: '/workspace/universal-connectivity/js-peer/public/rootfs/uc-go-peer/uc-go-peer-git-20260516-deadbee.json',
-        },
-        publication: {
-          cid: 'bafyrootfs',
-          itemHash: 'store-item-hash',
-          sourceSizeBytes: 987654321,
-        },
-      },
-    }),
-  })
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 
   const outputs = await readFile(outputFile, 'utf8')
   assert.match(outputs, /rootfs_item_hash=store-item-hash/)
+  assert.match(outputs, /rootfs_cid=bafyrootfs/)
+  assert.ok(calls.includes('https://api2.aleph.im/api/v0/messages'))
   assert.match(writes.join(''), /uc-go-peer-git-20260516-deadbee/)
 })

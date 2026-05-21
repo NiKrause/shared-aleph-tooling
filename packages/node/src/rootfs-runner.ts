@@ -1,25 +1,36 @@
 import { pathToFileURL } from "node:url";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { spawn } from "node:child_process";
 
 import {
   buildRootfs,
   createRootfsBuildPlan,
-  publishRootfs,
+  finalizeRootfsBuildPipeline,
+  publicationArtifacts,
   readRootfsContractFile,
   type RootfsBuildPlan,
   type RootfsPublishExecutionResult,
   type RootfsToolchainAvailability,
 } from "../../rootfs/src/index.ts";
+import { broadcastAlephMessage, normalizeBroadcastStatus, signAlephMessage } from "../../core/src/index.ts";
+import { inspectMessageResult } from "../../core/src/deployment-inspection.ts";
 
 import { booleanEnv, optionalEnv, requiredEnv } from "./env.ts";
 import { appendGithubOutput, appendGithubSummary } from "./github-outputs.ts";
+import { createPrivateKeyIdentity } from "./signer.ts";
 
 export interface ParsedRootfsRunnerInputs {
   buildPlan: RootfsBuildPlan;
   availability: RootfsToolchainAvailability;
   referenceRootfsDir?: string;
   createdAt?: string;
+}
+
+interface RootfsIpfsUploadResult {
+  cid: string;
+  responseText: string;
+  sourceSizeBytes?: number;
 }
 
 export async function parseRootfsRunnerInputs(env: NodeJS.ProcessEnv = process.env): Promise<ParsedRootfsRunnerInputs> {
@@ -82,6 +93,139 @@ export async function runLocalCommand(command: {
       }
     });
   });
+}
+
+async function sha256Hex(payload: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload))
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+async function uploadRootfsImageToIpfs(buildPlan: RootfsBuildPlan): Promise<RootfsIpfsUploadResult> {
+  const bytes = await readFile(buildPlan.imagePath)
+  const file = new File([bytes], path.basename(buildPlan.imagePath))
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(buildPlan.ipfsAddUrl, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!response.ok) {
+    throw new Error(`IPFS upload failed with ${response.status} ${response.statusText}`)
+  }
+
+  const responseText = await response.text()
+  const lines = responseText.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
+  if (lines.length === 0) {
+    throw new Error('No response received from the IPFS add endpoint')
+  }
+
+  const payload = JSON.parse(lines.at(-1) ?? '{}') as { Hash?: string; Size?: string | number }
+  const cid = payload.Hash?.trim()
+  if (!cid) {
+    throw new Error(`IPFS add response did not include a Hash: ${JSON.stringify(payload)}`)
+  }
+
+  let sourceSizeBytes: number | undefined
+  if (typeof payload.Size === 'number' && Number.isFinite(payload.Size) && payload.Size > 0) {
+    sourceSizeBytes = payload.Size
+  } else if (typeof payload.Size === 'string' && /^\d+$/u.test(payload.Size)) {
+    sourceSizeBytes = Number(payload.Size)
+  }
+
+  return { cid, responseText, sourceSizeBytes }
+}
+
+async function waitForIpfsCidAvailable(buildPlan: RootfsBuildPlan, cid: string): Promise<void> {
+  const gatewayUrl = `${buildPlan.ipfsGatewayUrl.replace(/\/+$/u, '')}/${cid}`
+  for (let attempt = 1; attempt <= buildPlan.ipfsGatewayWaitAttempts; attempt += 1) {
+    try {
+      const response = await fetch(gatewayUrl, {
+        method: 'GET',
+        headers: { range: 'bytes=0-0' },
+      })
+      if (response.status === 200 || response.status === 206) {
+        return
+      }
+    } catch {
+      // retry below
+    }
+
+    if (attempt < buildPlan.ipfsGatewayWaitAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, buildPlan.ipfsGatewayWaitDelaySeconds * 1000))
+    }
+  }
+
+  throw new Error(`CID ${cid} did not become retrievable from ${buildPlan.ipfsGatewayUrl} after ${buildPlan.ipfsGatewayWaitAttempts} attempts.`)
+}
+
+async function pinRootfsCidOnAleph(buildPlan: RootfsBuildPlan, cid: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const privateKey = requiredEnv('ALEPH_PRIVATE_KEY', env)
+  const identity = await createPrivateKeyIdentity(privateKey)
+  const now = Date.now() / 1000
+  const ref = optionalEnv('ALEPH_ROOTFS_REF', '', env).trim() || undefined
+  const content = {
+    address: identity.address,
+    time: now,
+    item_type: 'ipfs' as const,
+    item_hash: cid,
+    ...(ref ? { ref } : {}),
+  }
+  const itemContent = JSON.stringify(content)
+  const unsignedMessage = {
+    sender: identity.address,
+    chain: 'ETH' as const,
+    type: 'STORE' as const,
+    item_hash: await sha256Hex(itemContent),
+    item_type: 'inline' as const,
+    item_content: itemContent,
+    time: now,
+    channel: buildPlan.channel,
+  }
+  const message = await signAlephMessage(unsignedMessage, identity.signer)
+  const { response, httpStatus } = await broadcastAlephMessage(message, {
+    apiHost: buildPlan.alephApiHost,
+    sync: true,
+    fetch,
+  })
+  const status = normalizeBroadcastStatus(httpStatus, response?.message_status)
+  if (status === 'rejected') {
+    throw new Error(`Aleph STORE pin was rejected: ${JSON.stringify(response?.details ?? response ?? {})}`)
+  }
+  return typeof response?.item_hash === 'string' ? response.item_hash : message.item_hash
+}
+
+async function waitForAlephMessageProcessed(buildPlan: RootfsBuildPlan, itemHash: string): Promise<void> {
+  for (let attempt = 1; attempt <= buildPlan.alephMessageWaitAttempts; attempt += 1) {
+    const result = await inspectMessageResult(itemHash, {
+      apiHost: buildPlan.alephApiHost,
+      fetch,
+      label: 'Aleph STORE message',
+    })
+    if (result.status === 'processed') return
+    if (result.status === 'rejected') {
+      throw new Error(result.rejectionReason ?? `Aleph STORE message ${itemHash} was rejected.`)
+    }
+    if (attempt < buildPlan.alephMessageWaitAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, buildPlan.alephMessageWaitDelaySeconds * 1000))
+    }
+  }
+
+  throw new Error(`Aleph STORE message ${itemHash} did not become processed in time.`)
+}
+
+async function writeRootfsManifestOutputs(result: RootfsPublishExecutionResult): Promise<void> {
+  const { manifestJson, manifestPaths } = result.finalized
+  await mkdir(path.dirname(manifestPaths.primaryPath), { recursive: true })
+  await writeFile(manifestPaths.primaryPath, manifestJson)
+  if (manifestPaths.copyTargetPath) {
+    await mkdir(path.dirname(manifestPaths.copyTargetPath), { recursive: true })
+    await writeFile(manifestPaths.copyTargetPath, manifestJson)
+  }
+  if (manifestPaths.versionedTargetPath) {
+    await mkdir(path.dirname(manifestPaths.versionedTargetPath), { recursive: true })
+    await writeFile(manifestPaths.versionedTargetPath, manifestJson)
+  }
 }
 
 export async function emitRootfsOutputs(result: RootfsPublishExecutionResult, env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -149,14 +293,48 @@ export async function runRootfsMode(
   }
 
   if (mode === 'rootfs-publish') {
-    const result = await (hooks.publishRootfs ?? publishRootfs)(
-      parsed.buildPlan,
-      {
-        run: hooks.runCommand ?? runLocalCommand,
-        readText: hooks.readText ?? ((targetPath: string) => readFile(targetPath, 'utf8')),
+    const originalPlan = parsed.buildPlan
+    const buildPlan = originalPlan.skipUpload ? originalPlan : { ...originalPlan, skipUpload: true }
+    const buildResult = await (hooks.buildRootfs ?? buildRootfs)(
+      buildPlan,
+      { run: hooks.runCommand ?? runLocalCommand },
+      parsed.availability,
+      { referenceRootfsDir: parsed.referenceRootfsDir },
+    )
+
+    let ipfsAddResponseContent: string | undefined
+    let storeMessageContent: string | undefined
+    if (!originalPlan.skipUpload) {
+      const upload = await uploadRootfsImageToIpfs(originalPlan)
+      await waitForIpfsCidAvailable(originalPlan, upload.cid)
+      const itemHash = await pinRootfsCidOnAleph(originalPlan, upload.cid, env)
+      await waitForAlephMessageProcessed(originalPlan, itemHash)
+
+      const artifacts = publicationArtifacts(originalPlan)
+      await mkdir(originalPlan.outDir, { recursive: true })
+      await writeFile(artifacts.ipfsAddResponsePath, upload.responseText.endsWith('\n') ? upload.responseText : `${upload.responseText}\n`)
+      storeMessageContent = JSON.stringify({ item_hash: itemHash })
+      await writeFile(artifacts.storeMessagePath, `${storeMessageContent}\n`)
+      await writeFile(artifacts.storeMessageStderrPath, '')
+      ipfsAddResponseContent = upload.responseText
+    }
+
+    const finalized = finalizeRootfsBuildPipeline(originalPlan, {
+      createdAt: parsed.createdAt,
+      ipfsAddResponseContent,
+      storeMessageContent,
+    })
+    const result: RootfsPublishExecutionResult = {
+      pipeline: {
+        ...buildResult.pipeline,
+        buildPlan: originalPlan,
+        publicationArtifacts: publicationArtifacts(originalPlan),
+        manifestPaths: finalized.manifestPaths,
       },
-      { createdAt: parsed.createdAt, referenceRootfsDir: parsed.referenceRootfsDir },
-    );
+      executedCommands: buildResult.executedCommands,
+      finalized,
+    }
+    await writeRootfsManifestOutputs(result)
     await emitRootfsOutputs(result, env);
     stdout(`${JSON.stringify(result.finalized)}\n`);
     return;
