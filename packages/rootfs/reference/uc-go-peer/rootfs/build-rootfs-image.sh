@@ -11,6 +11,7 @@ BASE_IMAGE="${OUT_DIR}/debian-12-genericcloud-amd64.qcow2"
 IMAGE="${OUT_DIR}/aleph-uc-go-peer.qcow2"
 APP_BINARY="${OUT_DIR}/universal-chat-go"
 ROOTFS_IMAGE_SIZE="${ROOTFS_IMAGE_SIZE:-20G}"
+ROOTFS_BUILD_TMPDIR=""
 
 require() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -24,6 +25,14 @@ require qemu-img
 require virt-customize
 require python3
 require go
+
+cleanup() {
+  if [ -n "${ROOTFS_BUILD_TMPDIR}" ] && [ -d "${ROOTFS_BUILD_TMPDIR}" ]; then
+    rm -rf "${ROOTFS_BUILD_TMPDIR}"
+  fi
+}
+
+trap cleanup EXIT
 
 eval "$(python3 "${SCRIPT_DIR}/read-rootfs-contract.py" "${ROOTFS_CONTRACT_FILE}")"
 
@@ -56,15 +65,14 @@ cp "${BASE_IMAGE}" "${IMAGE}"
 qemu-img resize "${IMAGE}" "${ROOTFS_IMAGE_SIZE}"
 
 echo "Building universal-chat-go outside the guest image"
+ROOTFS_BUILD_TMPDIR="$(mktemp -d "${TMPDIR:-/tmp}/uc-go-peer-build.XXXXXX")"
 (
   cd "${PROJECT_DIR}/go-peer"
-  GOMODCACHE="${OUT_DIR}/gomodcache" \
-  GOCACHE="${OUT_DIR}/gocache" \
+  GOMODCACHE="${ROOTFS_BUILD_TMPDIR}/gomodcache" \
+  GOCACHE="${ROOTFS_BUILD_TMPDIR}/gocache" \
   CGO_ENABLED=0 \
   go build -ldflags="-w -s" -o "${APP_BINARY}" .
 )
-
-rm -rf "${OUT_DIR}/gomodcache" "${OUT_DIR}/gocache"
 
 virt-customize \
   -a "${IMAGE}" \
