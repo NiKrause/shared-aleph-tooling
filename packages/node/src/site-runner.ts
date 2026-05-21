@@ -173,7 +173,11 @@ export async function uploadStaticSiteDirectory(directory: string, gateway: stri
 
   const formData = new FormData()
   for (const file of files) {
-    formData.append('file', new File([file.bytes], file.relativePath))
+    const arrayBuffer = file.bytes.buffer.slice(
+      file.bytes.byteOffset,
+      file.bytes.byteOffset + file.bytes.byteLength
+    ) as ArrayBuffer
+    formData.append('file', new File([arrayBuffer], file.relativePath))
   }
 
   const url = new URL('/api/v0/add', gateway)
