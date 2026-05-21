@@ -2,7 +2,7 @@ import process from "node:process"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFile, readdir } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { isAbsolute, join, relative, resolve } from "node:path"
 
 import { broadcastAlephMessage, forgetAlephMessages, normalizeBroadcastStatus, publishAggregateKey, signAlephMessage } from "../../core/src/index.ts"
 import { inspectMessageResult } from "../../core/src/deployment-inspection.ts"
@@ -408,7 +408,10 @@ async function pinIpfsCidOnAleph(cidV0: string, env: NodeJS.ProcessEnv = process
 
 export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): Promise<void> {
   const projectDir = optionalEnv('ALEPH_SITE_PROJECT_DIR', process.cwd(), env)
-  const siteDirectory = requiredEnv('ALEPH_SITE_DIRECTORY', env)
+  const siteDirectoryInput = requiredEnv('ALEPH_SITE_DIRECTORY', env)
+  const siteDirectory = isAbsolute(siteDirectoryInput)
+    ? siteDirectoryInput
+    : resolve(projectDir, siteDirectoryInput)
   const ipfsGateway = optionalEnv('ALEPH_SITE_IPFS_GATEWAY', 'https://ipfs-2.aleph.im', env)
   const pin = optionalEnv('ALEPH_SITE_PIN', 'true', env) === 'true'
 

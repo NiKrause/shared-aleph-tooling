@@ -151,6 +151,47 @@ test('runSitePublishMode uploads dist through the Node IPFS client and emits out
   assert.match(summary, /IPFS CID v1: `bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku`/)
 })
 
+test('runSitePublishMode resolves a relative site directory from ALEPH_SITE_PROJECT_DIR', async () => {
+  const { dir, outputFile, summaryFile } = await createOutputEnv('site-publish-relative-')
+  const projectDir = join(dir, 'project')
+  const siteDir = join(projectDir, 'dist')
+  await mkdir(join(siteDir, 'assets'), { recursive: true })
+  await writeFile(join(siteDir, 'index.html'), '<!doctype html><title>blog</title>')
+  await writeFile(join(siteDir, 'assets', 'app.js'), 'console.log("hello")')
+
+  const originalFetch = globalThis.fetch
+  let uploadedFileNames: string[] = []
+  globalThis.fetch = (async (_input, init) => {
+    assert.equal(init?.method, 'POST')
+    assert.ok(init?.body instanceof FormData)
+    uploadedFileNames = Array.from(init.body.entries()).map(([, value]) => {
+      assert.ok(value instanceof File)
+      return value.name
+    })
+    return new Response([
+      JSON.stringify({ Name: 'index.html', Hash: 'QmFileOne' }),
+      JSON.stringify({ Name: '', Hash: 'QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n' }),
+    ].join('\n'), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    await runSitePublishMode({
+      GITHUB_OUTPUT: outputFile,
+      GITHUB_STEP_SUMMARY: summaryFile,
+      ALEPH_SITE_PROJECT_DIR: projectDir,
+      ALEPH_SITE_DIRECTORY: 'dist',
+      ALEPH_SITE_PIN: 'false',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  assert.deepEqual(uploadedFileNames, ['assets/app.js', 'index.html'])
+})
+
 test('runSitePublishMode pins the CID through the direct Aleph REST API', async () => {
   const { dir, outputFile, summaryFile } = await createOutputEnv('site-publish-pin-')
   const siteDir = join(dir, 'dist')
