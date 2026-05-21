@@ -100,11 +100,9 @@ At a high level, the workflow:
 4. installs the shared workspace dependencies
 5. validates input combinations
 6. installs system packages needed for RootFS builds
-7. optionally installs `aleph-client`
-8. optionally prepares the Aleph account from `ALEPH_PRIVATE_KEY`
-9. runs `packages/node/src/rootfs-runner.ts`
-10. exports the generated manifest JSON
-11. uploads the resulting workspace artifacts
+7. runs `packages/node/src/rootfs-runner.ts`
+8. exports the generated manifest JSON
+9. uploads the resulting workspace artifacts
 
 ## Validation Rules
 

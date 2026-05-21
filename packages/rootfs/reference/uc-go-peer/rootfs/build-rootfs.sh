@@ -16,10 +16,6 @@ SKIP_BUILD="${SKIP_BUILD:-0}"
 IPFS_ADD_URL="${IPFS_ADD_URL:-https://ipfs.aleph.cloud/api/v0/add}"
 IPFS_GATEWAY_URL="${IPFS_GATEWAY_URL:-https://ipfs.aleph.cloud/ipfs}"
 ALEPH_API_HOST="${ALEPH_API_HOST:-https://api2.aleph.im}"
-ALEPH_MESSAGE_WAIT_ATTEMPTS="${ALEPH_MESSAGE_WAIT_ATTEMPTS:-60}"
-ALEPH_MESSAGE_WAIT_DELAY_SECONDS="${ALEPH_MESSAGE_WAIT_DELAY_SECONDS:-5}"
-ALEPH_PIN_ATTEMPTS="${ALEPH_PIN_ATTEMPTS:-4}"
-ALEPH_PIN_DELAY_SECONDS="${ALEPH_PIN_DELAY_SECONDS:-10}"
 IPFS_GATEWAY_WAIT_ATTEMPTS="${IPFS_GATEWAY_WAIT_ATTEMPTS:-30}"
 IPFS_GATEWAY_WAIT_DELAY_SECONDS="${IPFS_GATEWAY_WAIT_DELAY_SECONDS:-10}"
 ROOTFS_CID=""
@@ -67,20 +63,6 @@ resolve_rootfs_version() {
   fi
 
   printf 'uc-go-peer-v0.1.0\n'
-}
-
-resolve_aleph_bin() {
-  if [ -n "${ALEPH_BIN:-}" ]; then
-    printf '%s\n' "${ALEPH_BIN}"
-    return
-  fi
-
-  if command -v aleph >/dev/null 2>&1; then
-    command -v aleph
-    return
-  fi
-
-  die "Missing aleph CLI. Set ALEPH_BIN=/path/to/aleph or install aleph-client."
 }
 
 build_with_host_tools() {
@@ -338,9 +320,6 @@ PY
 }
 
 upload_image() {
-  local aleph_bin
-  aleph_bin="$(resolve_aleph_bin)"
-
   require python3
   require curl
 
@@ -378,71 +357,7 @@ PY
   echo "Waiting for CID ${ROOTFS_CID} to become retrievable via ${IPFS_GATEWAY_URL}..."
   wait_for_ipfs_cid_available "${ROOTFS_CID}"
 
-  echo "Pinning CID ${ROOTFS_CID} on Aleph Cloud..."
-  local attempt
-  local stderr_log="${OUT_DIR}/store-message.stderr.log"
-  local stdout_log="${OUT_DIR}/store-message.json"
-  local last_error_summary=""
-
-  for attempt in $(seq 1 "${ALEPH_PIN_ATTEMPTS}"); do
-    : > "${stdout_log}"
-    : > "${stderr_log}"
-
-    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} for CID ${ROOTFS_CID}..."
-    if "${aleph_bin}" file pin "${ROOTFS_CID}" \
-      --channel "${CHANNEL}" \
-      > "${stdout_log}" 2> "${stderr_log}"; then
-      break
-    fi
-
-    last_error_summary="$(python3 - "${stderr_log}" <<'PY'
-import sys
-from pathlib import Path
-
-text = Path(sys.argv[1]).read_text(errors="replace").strip()
-print(text or "Aleph pin failed without stderr output")
-PY
-)"
-
-    echo "Aleph pin attempt ${attempt}/${ALEPH_PIN_ATTEMPTS} failed for CID ${ROOTFS_CID}." >&2
-    if [[ -n "${last_error_summary}" ]]; then
-      echo "${last_error_summary}" >&2
-    fi
-
-    if [ "${attempt}" -lt "${ALEPH_PIN_ATTEMPTS}" ]; then
-      echo "Retrying Aleph pin in ${ALEPH_PIN_DELAY_SECONDS}s..." >&2
-      sleep "${ALEPH_PIN_DELAY_SECONDS}"
-      continue
-    fi
-
-    die "Aleph pin failed for CID ${ROOTFS_CID} after ${ALEPH_PIN_ATTEMPTS} attempts"
-  done
-
-  if [ ! -s "${stdout_log}" ]; then
-    if [ -n "${last_error_summary}" ]; then
-      echo "${last_error_summary}" >&2
-    fi
-    die "Aleph pin returned an empty response for CID ${ROOTFS_CID}"
-  fi
-
-  ROOTFS_ITEM_HASH="$(python3 - "${stdout_log}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-content = Path(sys.argv[1]).read_text().strip()
-if not content:
-    raise SystemExit("Aleph pin returned an empty response")
-
-payload = json.loads(content)
-print(payload["item_hash"])
-PY
-)" || die "Failed to extract Aleph item hash from ${OUT_DIR}/store-message.json"
-
-  wait_for_aleph_message_processed "${ROOTFS_ITEM_HASH}"
-
-  echo "Published rootfs CID: ${ROOTFS_CID}"
-  echo "Published Aleph item hash: ${ROOTFS_ITEM_HASH}"
+  echo "Uploaded rootfs CID: ${ROOTFS_CID}"
 }
 
 mkdir -p "${OUT_DIR}"
@@ -487,5 +402,4 @@ if [ "${SKIP_UPLOAD}" = "1" ]; then
   exit 0
 fi
 
-upload_image
-write_manifest "${ROOTFS_CID}" "${ROOTFS_ITEM_HASH}"
+die "Direct upload from build-rootfs.sh is deprecated. Use packages/node/src/rootfs-runner.ts for IPFS upload and Aleph publication, or rerun with SKIP_UPLOAD=1 for build-only output."
