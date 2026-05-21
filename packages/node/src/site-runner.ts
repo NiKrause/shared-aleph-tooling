@@ -1,11 +1,16 @@
 import process from "node:process"
 import { spawn } from "node:child_process"
-import { fileURLToPath } from "node:url"
+import { readFile, readdir } from "node:fs/promises"
+import { join, relative } from "node:path"
 
 import { inspectMessageResult } from "../../core/src/deployment-inspection.ts"
 
 import { optionalEnv, requiredEnv } from "./env.ts"
 import { appendGithubOutput, appendGithubSummary } from "./github-outputs.ts"
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'
+const DAG_PB_CODEC = 0x70
 
 export interface RunResult {
   stdout: string
@@ -67,12 +72,138 @@ async function waitForAlephMessage(itemHash: string, env: NodeJS.ProcessEnv = pr
   throw new Error(`Aleph STORE message ${itemHash} did not become processed in time.`)
 }
 
-function defaultSitePublishScriptPath(): string {
-  return fileURLToPath(new URL('../reference/publish-static-site.py', import.meta.url))
+interface SitePublishResult {
+  cidV0: string
+  cidV1: string
 }
 
-function defaultSitePublishRequirementsPath(): string {
-  return fileURLToPath(new URL('../reference/requirements-site-publish.txt', import.meta.url))
+function encodeVarint(value: number): Uint8Array {
+  const bytes: number[] = []
+  let remaining = value >>> 0
+  while (remaining >= 0x80) {
+    bytes.push((remaining & 0x7f) | 0x80)
+    remaining >>>= 7
+  }
+  bytes.push(remaining)
+  return Uint8Array.from(bytes)
+}
+
+function decodeBase58(value: string): Uint8Array {
+  if (!value) throw new Error('CID v0 must be a non-empty base58btc string.')
+  const digits = [0]
+  for (const character of value) {
+    const alphabetIndex = BASE58_ALPHABET.indexOf(character)
+    if (alphabetIndex < 0) {
+      throw new Error(`Invalid base58btc character "${character}" in CID v0 "${value}".`)
+    }
+    let carry = alphabetIndex
+    for (let index = 0; index < digits.length; index += 1) {
+      const next = digits[index]! * 58 + carry
+      digits[index] = next & 0xff
+      carry = next >> 8
+    }
+    while (carry > 0) {
+      digits.push(carry & 0xff)
+      carry >>= 8
+    }
+  }
+
+  let leadingZeroCount = 0
+  while (leadingZeroCount < value.length && value[leadingZeroCount] === '1') {
+    leadingZeroCount += 1
+  }
+
+  const decoded = new Uint8Array(leadingZeroCount + digits.length)
+  for (let index = 0; index < digits.length; index += 1) {
+    decoded[decoded.length - 1 - index] = digits[index]!
+  }
+  return decoded
+}
+
+function encodeBase32LowerNoPad(bytes: Uint8Array): string {
+  let bits = 0
+  let value = 0
+  let output = 'b'
+  for (const byte of bytes) {
+    value = (value << 8) | byte
+    bits += 8
+    while (bits >= 5) {
+      output += BASE32_ALPHABET[(value >>> (bits - 5)) & 31]
+      bits -= 5
+    }
+  }
+  if (bits > 0) {
+    output += BASE32_ALPHABET[(value << (5 - bits)) & 31]
+  }
+  return output
+}
+
+export function cidV0ToV1(cidV0: string): string {
+  const multihash = decodeBase58(cidV0)
+  const prefix = new Uint8Array([...encodeVarint(1), ...encodeVarint(DAG_PB_CODEC)])
+  const cidV1Bytes = new Uint8Array(prefix.length + multihash.length)
+  cidV1Bytes.set(prefix, 0)
+  cidV1Bytes.set(multihash, prefix.length)
+  return encodeBase32LowerNoPad(cidV1Bytes)
+}
+
+async function collectFiles(folder: string, base = folder): Promise<Array<{ relativePath: string; bytes: Uint8Array }>> {
+  const entries = await readdir(folder, { withFileTypes: true })
+  const files: Array<{ relativePath: string; bytes: Uint8Array }> = []
+  for (const entry of entries.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    const fullPath = join(folder, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...await collectFiles(fullPath, base))
+      continue
+    }
+    if (!entry.isFile()) continue
+    files.push({
+      relativePath: relative(base, fullPath),
+      bytes: await readFile(fullPath),
+    })
+  }
+  return files
+}
+
+export async function uploadStaticSiteDirectory(directory: string, gateway: string): Promise<SitePublishResult> {
+  const files = await collectFiles(directory)
+  if (files.length === 0) {
+    throw new Error(`No files found under ${directory}`)
+  }
+
+  const formData = new FormData()
+  for (const file of files) {
+    formData.append('file', new File([file.bytes], file.relativePath))
+  }
+
+  const url = new URL('/api/v0/add', gateway)
+  url.searchParams.set('recursive', 'true')
+  url.searchParams.set('wrap-with-directory', 'true')
+
+  const response = await fetch(url, {
+    method: 'POST',
+    body: formData,
+  })
+  if (!response.ok) {
+    throw new Error(`IPFS add request failed with ${response.status} ${response.statusText}`)
+  }
+
+  const responseText = await response.text()
+  let cidV0 = ''
+  for (const line of responseText.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+    const payload = JSON.parse(trimmed) as { Hash?: string }
+    cidV0 = payload.Hash ?? cidV0
+  }
+  if (!cidV0) {
+    throw new Error('CID not found in IPFS response')
+  }
+
+  return {
+    cidV0,
+    cidV1: cidV0ToV1(cidV0),
+  }
 }
 
 function mergedAddrs(env: NodeJS.ProcessEnv = process.env): string[] {
@@ -90,33 +221,15 @@ function mergedAddrs(env: NodeJS.ProcessEnv = process.env): string[] {
 }
 
 export async function runSitePublishMode(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  const projectDir = requiredEnv('ALEPH_SITE_PROJECT_DIR', env)
-  const publishScript = optionalEnv('ALEPH_SITE_PUBLISH_SCRIPT', defaultSitePublishScriptPath(), env)
-  const publishRequirements = optionalEnv('ALEPH_SITE_PUBLISH_REQUIREMENTS', defaultSitePublishRequirementsPath(), env)
+  const projectDir = optionalEnv('ALEPH_SITE_PROJECT_DIR', process.cwd(), env)
   const siteDirectory = requiredEnv('ALEPH_SITE_DIRECTORY', env)
-  const pythonBin = optionalEnv('ALEPH_SITE_PYTHON', 'python3', env)
+  const ipfsGateway = optionalEnv('ALEPH_SITE_IPFS_GATEWAY', 'https://ipfs-2.aleph.im', env)
   const alephBin = optionalEnv('ALEPH_SITE_ALEPH_BIN', 'aleph', env)
   const pin = optionalEnv('ALEPH_SITE_PIN', 'true', env) === 'true'
 
-  const publish = await runCapture(pythonBin, [publishScript, siteDirectory], { cwd: projectDir })
-  process.stdout.write(publish.stdout)
-  if (publish.stderr) process.stderr.write(publish.stderr)
-  if (publish.exitCode !== 0) {
-    if (publish.stderr.includes('No module named') || publish.stderr.includes('cannot import name')) {
-      throw new Error(
-        `${publishScript} is missing Python dependencies. Install them with ` +
-        `"${pythonBin} -m pip install -r ${publishRequirements}".`
-      )
-    }
-    throw new Error(`${publishScript} failed with exit code ${publish.exitCode}`)
-  }
-
-  const payload = parseLastJsonObject(publish.stdout)
-  const cidV0 = String(payload.cid_v0 ?? '')
-  const cidV1 = String(payload.cid_v1 ?? '')
-  if (!cidV0 || !cidV1 || cidV0 === 'null' || cidV1 === 'null') {
-    throw new Error(`Failed to extract IPFS CIDs from publish result: ${JSON.stringify(payload)}`)
-  }
+  const publish = await uploadStaticSiteDirectory(siteDirectory, ipfsGateway)
+  const cidV0 = publish.cidV0
+  const cidV1 = publish.cidV1
 
   await appendGithubOutput('ipfs_cid_v0', cidV0, env)
   await appendGithubOutput('ipfs_cid_v1', cidV1, env)

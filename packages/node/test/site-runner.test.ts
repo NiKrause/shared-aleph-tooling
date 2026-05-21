@@ -1,10 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { parseLastJsonObject, runBootstrapEnvMode, runDomainLinkMode, runProbeMode } from "../src/site-runner.ts"
+import { cidV0ToV1, parseLastJsonObject, runBootstrapEnvMode, runDomainLinkMode, runProbeMode, runSitePublishMode } from "../src/site-runner.ts"
 
 async function createOutputEnv(prefix: string) {
   const dir = await mkdtemp(join(tmpdir(), prefix))
@@ -82,6 +82,63 @@ test('runDomainLinkMode detaches and attaches the production domain', async () =
   assert.match(outputs, /url=https:\/\/relay.example.com/)
   assert.match(commands, /domain detach relay.example.com --no-ask/)
   assert.match(commands, /domain attach relay.example.com --item-hash abcd1234 --catch-all-path \/index.html --no-ask/)
+})
+
+test('cidV0ToV1 converts dag-pb CIDv0 values to lowercase base32 CIDv1', () => {
+  assert.equal(
+    cidV0ToV1('QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n'),
+    'bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku'
+  )
+})
+
+test('runSitePublishMode uploads dist through the Node IPFS client and emits outputs', async () => {
+  const { dir, outputFile, summaryFile } = await createOutputEnv('site-publish-')
+  const siteDir = join(dir, 'dist')
+  await mkdir(join(siteDir, 'assets'), { recursive: true })
+  await writeFile(join(siteDir, 'index.html'), '<!doctype html><title>blog</title>')
+  await writeFile(join(siteDir, 'assets', 'app.js'), 'console.log("hello")')
+
+  const originalFetch = globalThis.fetch
+  let requestUrl = ''
+  let uploadedFileNames: string[] = []
+  globalThis.fetch = (async (input, init) => {
+    requestUrl = String(input)
+    assert.equal(init?.method, 'POST')
+    assert.ok(init?.body instanceof FormData)
+    uploadedFileNames = Array.from(init.body.entries()).map(([, value]) => {
+      assert.ok(value instanceof File)
+      return value.name
+    })
+    return new Response([
+      JSON.stringify({ Name: 'index.html', Hash: 'QmFileOne' }),
+      JSON.stringify({ Name: '', Hash: 'QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n' }),
+    ].join('\n'), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }) as typeof fetch
+
+  try {
+    await runSitePublishMode({
+      GITHUB_OUTPUT: outputFile,
+      GITHUB_STEP_SUMMARY: summaryFile,
+      ALEPH_SITE_PROJECT_DIR: dir,
+      ALEPH_SITE_DIRECTORY: siteDir,
+      ALEPH_SITE_IPFS_GATEWAY: 'https://ipfs-2.aleph.im',
+      ALEPH_SITE_PIN: 'false',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+
+  const outputs = await readFile(outputFile, 'utf8')
+  const summary = await readFile(summaryFile, 'utf8')
+  assert.equal(requestUrl, 'https://ipfs-2.aleph.im/api/v0/add?recursive=true&wrap-with-directory=true')
+  assert.deepEqual(uploadedFileNames, ['assets/app.js', 'index.html'])
+  assert.match(outputs, /ipfs_cid_v0=QmdfTbBqBPQ7VNxZEYEj14VmRuZBkqFbiwReogJgS1zR1n/)
+  assert.match(outputs, /ipfs_cid_v1=bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku/)
+  assert.match(outputs, /url=https:\/\/bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku\.ipfs\.aleph\.sh/)
+  assert.match(summary, /IPFS CID v1: `bafybeihdwdcefgh4dqkjv67uzcmw7ojee6xedzdetojuzjevtenxquvyku`/)
 })
 
 test('parseLastJsonObject parses multiline trailing JSON output', () => {
