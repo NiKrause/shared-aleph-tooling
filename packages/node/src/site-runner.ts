@@ -1,5 +1,4 @@
 import process from "node:process"
-import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFile, readdir } from "node:fs/promises"
 import { isAbsolute, join, relative, resolve } from "node:path"
@@ -9,33 +8,12 @@ import { inspectMessageResult } from "../../core/src/deployment-inspection.ts"
 
 import { optionalEnv, requiredEnv } from "./env.ts"
 import { appendGithubOutput, appendGithubSummary } from "./github-outputs.ts"
+import type { RelayProbeResult } from "./relay-probe.ts"
 import { createPrivateKeyIdentity } from "./signer.ts"
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 const BASE32_ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567'
 const DAG_PB_CODEC = 0x70
-
-export interface RunResult {
-  stdout: string
-  stderr: string
-  exitCode: number
-}
-
-async function runCapture(command: string, args: string[], options: { cwd?: string; env?: Record<string, string> } = {}): Promise<RunResult> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: { ...process.env, ...options.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
-    child.stderr.on('data', (chunk) => { stderr += String(chunk) })
-    child.on('error', reject)
-    child.on('exit', (exitCode) => resolve({ stdout, stderr, exitCode: exitCode ?? 1 }))
-  })
-}
 
 export function parseLastJsonObject(text: string): Record<string, unknown> {
   const lines = text.split(/\r?\n/).filter((line) => line.trim().length > 0)
@@ -498,26 +476,25 @@ export async function runDomainLinkMode(env: NodeJS.ProcessEnv = process.env): P
   ], env)
 }
 
-export async function runProbeMode(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function runProbeMode(
+  env: NodeJS.ProcessEnv = process.env,
+  options: { probe?: (addrs: string[], env: NodeJS.ProcessEnv) => Promise<RelayProbeResult[]> } = {}
+): Promise<void> {
   const addrs = mergedAddrs(env)
   if (addrs.length === 0) throw new Error('No relay probe or browser bootstrap multiaddrs were supplied.')
-  const workdir = requiredEnv('ALEPH_SITE_PROBE_WORKDIR', env)
-  const scriptPath = requiredEnv('ALEPH_SITE_PROBE_SCRIPT', env)
-  const nodeBin = optionalEnv('ALEPH_SITE_NODE', 'node', env)
+  const probe = options.probe ?? (await import('./relay-probe.ts')).probeRelayAddrs
+  const rows = await probe(addrs, env)
+  if (rows.length === 0) throw new Error('Relay probe produced no JSON output.')
 
-  const result = await runCapture(nodeBin, [scriptPath, ...addrs], { cwd: workdir })
-  if (result.stdout) process.stdout.write(result.stdout)
-  if (result.stderr) process.stderr.write(result.stderr)
-  if (result.exitCode !== 0) {
-    throw new Error(`relay probe failed with exit code ${result.exitCode}`)
+  const json = rows.map((row) => JSON.stringify(row)).join('\n')
+  if (json) process.stdout.write(`${json}\n`)
+
+  if (rows.some((row) => row.required && row.ok !== true)) {
+    throw new Error('At least one required relay protocol probe failed.')
   }
 
-  const rows = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>)
-  if (rows.length === 0) throw new Error('Relay probe produced no JSON output.')
-  if (rows.some((row) => row.ok !== true)) throw new Error('At least one relay protocol probe failed.')
-
   await appendGithubOutput('ok', 'true', env)
-  await appendGithubOutput('json', result.stdout.trim(), env)
+  await appendGithubOutput('json', json, env)
   await appendGithubOutput('merged_multiaddrs_json', JSON.stringify(addrs), env)
 }
 

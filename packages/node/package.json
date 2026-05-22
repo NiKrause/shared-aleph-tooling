@@ -1,6 +1,6 @@
 {
   "name": "@le-space/node",
-  "version": "0.1.51",
+  "version": "0.1.52",
   "description": "Node and GitHub Actions adapters for shared Aleph tooling.",
   "license": "MIT",
   "private": true,
@@ -8,13 +8,25 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "dependencies": {
+    "@chainsafe/libp2p-noise": "^16.1.0",
+    "@chainsafe/libp2p-quic": "^1.1.1",
+    "@chainsafe/libp2p-yamux": "^7.0.1",
     "@le-space/core": "workspace:*",
+    "@libp2p/circuit-relay-v2": "^3.2.9",
+    "@libp2p/identify": "^3.0.28",
+    "@libp2p/peer-id": "^5.1.7",
+    "@libp2p/ping": "^2.0.28",
     "@le-space/shared-types": "workspace:*",
     "@le-space/rootfs": "workspace:*",
-    "ethers": "^6.15.0"
+    "@libp2p/tcp": "^10.1.9",
+    "@libp2p/webrtc": "^5.2.10",
+    "@libp2p/websockets": "^9.2.9",
+    "@multiformats/multiaddr": "^12.5.1",
+    "ethers": "^6.15.0",
+    "libp2p": "^2.8.3"
   },
   "scripts": {
-    "build": "node --check ./src/index.ts && node --check ./src/env.ts && node --check ./src/github-outputs.ts && node --check ./src/signer.ts && node --check ./src/deploy-outputs.ts && node --check ./src/deploy-plan.ts && node --check ./src/deploy-executor.ts && node --check ./src/action-runner.ts && node --check ./src/rootfs-runner.ts && node --check ./src/site-runner.ts",
+    "build": "node --check ./src/index.ts && node --check ./src/env.ts && node --check ./src/github-outputs.ts && node --check ./src/signer.ts && node --check ./src/deploy-outputs.ts && node --check ./src/deploy-plan.ts && node --check ./src/deploy-executor.ts && node --check ./src/action-runner.ts && node --check ./src/rootfs-runner.ts && node --check ./src/relay-probe.ts && node --check ./src/site-runner.ts",
     "build:publish": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.publish.json",
     "test": "node --test ./test/**/*.test.ts",
     "lint": "echo \"node lint placeholder\""
