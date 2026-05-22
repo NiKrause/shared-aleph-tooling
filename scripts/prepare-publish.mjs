@@ -93,15 +93,18 @@ async function main() {
           ? {
               '.': {
                 types: './shared/index.d.ts',
-                import: './shared/index.js'
+                import: './shared/index.js',
+                default: './shared/index.js'
               },
               './shared': {
                 types: './shared/index.d.ts',
-                import: './shared/index.js'
+                import: './shared/index.js',
+                default: './shared/index.js'
               },
               './react': {
                 types: './react/index.d.ts',
-                import: './react/index.js'
+                import: './react/index.js',
+                default: './react/index.js'
               },
               './svelte': './svelte/index.js',
               './styles.css': './styles.css'
