@@ -20,6 +20,18 @@ const panelStyle: React.CSSProperties = {
   fontFamily: '"DM Sans", "Inter", sans-serif'
 }
 
+const fieldStyle: React.CSSProperties = {
+  width: '100%',
+  borderRadius: '0.8rem',
+  border: '1px solid rgba(255,255,255,0.16)',
+  background: 'rgba(248,250,252,0.98)',
+  color: '#111827',
+  padding: '0.7rem 0.85rem',
+  fontFamily: '"DM Sans", "Inter", sans-serif',
+  fontSize: '0.98rem',
+  lineHeight: 1.45
+}
+
 export function SponsorRelayFab(props: SponsorRelayProps) {
   const { controller, state } = useSponsorRelayController(props)
   const launcherMode = props.launcherMode ?? 'floating'
@@ -78,19 +90,44 @@ export function SponsorRelayFab(props: SponsorRelayProps) {
             {state.errorText ? <p style={{ color: '#ffd9d9' }}>{state.errorText}</p> : null}
 
             <div style={{ display: 'grid', gap: '0.75rem', marginTop: '0.9rem' }}>
-              <input value={state.manifestUrl} onChange={(event) => controller.setManifestUrl(event.currentTarget.value)} placeholder="Manifest URL" />
-              <input value={state.instanceName} onChange={(event) => controller.setInstanceName(event.currentTarget.value)} placeholder="Instance name" />
-              <select value={state.pricingSummary.tier?.id ?? state.tierId} onChange={(event) => controller.setTierId(event.currentTarget.value)}>
+              <input
+                style={fieldStyle}
+                value={state.manifestUrl}
+                onChange={(event) => controller.setManifestUrl(event.currentTarget.value)}
+                placeholder="Manifest URL"
+              />
+              <input
+                style={fieldStyle}
+                value={state.instanceName}
+                onChange={(event) => controller.setInstanceName(event.currentTarget.value)}
+                placeholder="Instance name"
+              />
+              <select
+                style={fieldStyle}
+                value={state.pricingSummary.tier?.id ?? state.tierId}
+                onChange={(event) => controller.setTierId(event.currentTarget.value)}
+              >
                 {(state.pricingSummary.pricing?.tiers ?? []).map((tier) => (
                   <option key={tier.id} value={tier.id}>
                     {tier.id}
                   </option>
                 ))}
               </select>
-              <textarea rows={3} value={state.sshPublicKey} onChange={(event) => controller.setSshPublicKey(event.currentTarget.value)} placeholder="SSH public key" />
+              <textarea
+                style={fieldStyle}
+                rows={3}
+                value={state.sshPublicKey}
+                onChange={(event) => controller.setSshPublicKey(event.currentTarget.value)}
+                placeholder="SSH public key"
+              />
               <details>
                 <summary>Paste Manifest</summary>
-                <textarea rows={7} value={state.manifestJson} onChange={(event) => controller.setManifestJson(event.currentTarget.value)} />
+                <textarea
+                  style={{ ...fieldStyle, marginTop: '0.65rem' }}
+                  rows={7}
+                  value={state.manifestJson}
+                  onChange={(event) => controller.setManifestJson(event.currentTarget.value)}
+                />
               </details>
             </div>
 
