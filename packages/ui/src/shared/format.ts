@@ -16,7 +16,11 @@ export function formatNumber(value: number | null | undefined, digits = 0): stri
 
 export function formatDateTime(value: string | number | null | undefined): string {
   if (!value) return '-'
-  const date = typeof value === 'number' ? new Date(value) : new Date(value)
+  const normalizedValue =
+    typeof value === 'number' && value > 0 && value < 10_000_000_000
+      ? value * 1000
+      : value
+  const date = typeof normalizedValue === 'number' ? new Date(normalizedValue) : new Date(normalizedValue)
   if (Number.isNaN(date.getTime())) return String(value)
   return date.toLocaleString()
 }

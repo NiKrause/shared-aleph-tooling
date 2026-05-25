@@ -196,6 +196,32 @@ test('fetchInstances requests instance messages and normalizes confirmed items t
   }
 })
 
+test('fetchInstances defaults missing fresh-instance status to pending', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          messages: [{ item_hash: 'b'.repeat(64), type: 'INSTANCE', confirmed: false, status: null }]
+        }),
+        { status: 200 }
+      )
+
+    const instances = await fetchInstances('0xabc')
+    assert.deepEqual(instances, [
+      {
+        item_hash: 'b'.repeat(64),
+        type: 'INSTANCE',
+        confirmed: false,
+        status: 'pending'
+      }
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('fetch2n6WebAccessUrl normalizes bare subdomains into https URLs', async () => {
   const originalFetch = globalThis.fetch
 

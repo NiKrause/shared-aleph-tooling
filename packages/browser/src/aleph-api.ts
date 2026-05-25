@@ -198,7 +198,7 @@ export async function fetchInstances(address: string, apiHost = DEFAULT_ALEPH_AP
         ? message.status
         : message.confirmed
           ? 'processed'
-          : message.status
+          : 'pending'
   }))
 }
 
