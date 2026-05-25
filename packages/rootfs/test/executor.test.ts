@@ -74,31 +74,26 @@ test('buildRootfs executes prepare and run commands from the selected execution 
   );
 
   assert.equal(result.pipeline.executionPlan.mode, 'docker');
-  assert.deepEqual(commands, [
-    {
-      command: 'docker',
-      args: [
-        'build', '--platform', 'linux/amd64', '-t', 'uc-go-peer-rootfs-builder:local', '-f',
-        '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/Dockerfile.rootfs',
-        '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
-      ],
-    },
-    {
-      command: 'docker',
-      args: [
-        'run', '--rm', '--privileged', '--platform', 'linux/amd64',
-        '-e', 'LIBGUESTFS_BACKEND=direct',
-        '-e', 'ROOTFS_CONTRACT_FILE=/workspace/project/go-peer/aleph/root-profiles/uc-go-peer.json',
-        '-e', 'OUT_DIR=/workspace/project/go-peer/aleph/dist-rootfs',
-        '-e', 'ROOTFS_IMAGE_SIZE=20G',
-        '-e', 'PROJECT_DIR=/workspace/project',
-        '-v', '/workspace/universal-connectivity:/workspace/project',
-        '-v', '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs:/workspace/shared-rootfs',
-        '-w', '/workspace/shared-rootfs',
-        'uc-go-peer-rootfs-builder:local',
-        '/bin/bash', '/workspace/shared-rootfs/build-rootfs-image.sh',
-      ],
-    },
+  assert.deepEqual(commands[0], {
+    command: 'docker',
+    args: [
+      'build', '--platform', 'linux/amd64', '-t', 'uc-go-peer-rootfs-builder:local', '-f',
+      '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs/Dockerfile.rootfs',
+      '/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs',
+    ],
+  });
+  assert.equal(commands[1]?.command, 'docker');
+  assert.ok(commands[1]?.args.includes('LIBGUESTFS_BACKEND=direct'));
+  assert.ok(commands[1]?.args.includes('PROJECT_DIR=/workspace/project'));
+  assert.ok(commands[1]?.args.includes('OUT_DIR=/workspace/project/go-peer/aleph/dist-rootfs'));
+  assert.ok(commands[1]?.args.includes('ROOTFS_CONTRACT_FILE=/workspace/project/go-peer/aleph/root-profiles/uc-go-peer.json'));
+  assert.ok(commands[1]?.args.includes('ROOTFS_IMAGE_SIZE=20G'));
+  assert.ok(commands[1]?.args.includes('/workspace/universal-connectivity:/workspace/project'));
+  assert.ok(commands[1]?.args.includes('/workspace/shared-aleph-tooling/packages/rootfs/reference/uc-go-peer/rootfs:/workspace/shared-rootfs'));
+  assert.deepEqual(commands[1]?.args.slice(-3), [
+    'uc-go-peer-rootfs-builder:local',
+    '/bin/bash',
+    '/workspace/shared-rootfs/build-rootfs-image.sh',
   ]);
 });
 

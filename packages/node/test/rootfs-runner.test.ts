@@ -190,16 +190,6 @@ test('runRootfsMode executes rootfs-publish and emits outputs through the direct
   globalThis.fetch = (async (input, init) => {
     const url = String(input)
     calls.push(url)
-    if (url === 'https://ipfs.aleph.cloud/api/v0/add') {
-      return new Response(JSON.stringify({
-        Name: 'aleph-uc-go-peer.qcow2',
-        Hash: 'bafyrootfs',
-        Size: '987654321',
-      }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }
     if (url === 'https://ipfs.aleph.cloud/ipfs/bafyrootfs') {
       assert.equal(init?.headers instanceof Headers ? init.headers.get('range') : (init?.headers as Record<string, string>)?.range, 'bytes=0-0')
       return new Response('', { status: 206 })
@@ -260,6 +250,15 @@ test('runRootfsMode executes rootfs-publish and emits outputs through the direct
           executedCommands: [],
         }
       },
+      uploadRootfsImageToIpfs: async () => ({
+        cid: 'bafyrootfs',
+        responseText: JSON.stringify({
+          Name: 'aleph-uc-go-peer.qcow2',
+          Hash: 'bafyrootfs',
+          Size: '987654321',
+        }),
+        sourceSizeBytes: 987654321,
+      }),
     })
   } finally {
     globalThis.fetch = originalFetch

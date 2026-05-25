@@ -1,4 +1,5 @@
 import type { RelayPingState, SponsorRelayRootfsHealth } from './types'
+import type { DeploymentProgressEvent } from '../../../shared-types/src/deployment.ts'
 
 export const DEFAULT_INSTANCE_NAME = 'sponsor-relay'
 export const DEFAULT_MANIFEST_URL = './rootfs-manifest.json'
@@ -17,6 +18,16 @@ export const RELAY_PING_IDLE_STATE: RelayPingState = {
   lastSentAt: null,
   lastReceivedAt: null,
   error: null
+}
+export const IDLE_DEPLOYMENT_PROGRESS: DeploymentProgressEvent = {
+  stage: 'idle',
+  label: 'Ready',
+  progress: 0,
+  status: 'info',
+  itemHash: null,
+  detail: null,
+  error: null,
+  timestamp: Date.now()
 }
 export const REFRESH_INTERVAL_MS = 30_000
 export const RELAY_PING_INTERVAL_MS = 20_000

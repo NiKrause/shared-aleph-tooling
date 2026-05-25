@@ -6,6 +6,7 @@ export type RootfsBuildDriver = 'auto' | 'host' | 'docker'
 
 export interface RootfsBuildOptions {
   projectDir: string
+  orbitdbRelayPinnerDir?: string
   alephDir?: string
   outDir?: string
   contractPath?: string
@@ -33,6 +34,7 @@ export interface RootfsBuildPlan {
   contract: RootfsContract
   contractPath: string
   projectDir: string
+  orbitdbRelayPinnerDir?: string
   alephDir: string
   outDir: string
   driver: RootfsBuildDriver
@@ -63,28 +65,59 @@ function positiveInteger(value: number | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
 }
 
-export function deriveRootfsVersion(options: Pick<RootfsBuildOptions, 'rootfsVersion' | 'gitShortSha' | 'now'> = {}): string {
+export function deriveRootfsVersion(
+  options: Pick<RootfsBuildOptions, 'rootfsVersion' | 'gitShortSha' | 'now'> & { defaultId?: string } = {}
+): string {
   if (options.rootfsVersion && options.rootfsVersion.trim()) {
     return options.rootfsVersion.trim()
   }
+
+  const defaultId = options.defaultId?.trim() || 'uc-go-peer'
 
   if (options.gitShortSha && options.gitShortSha.trim()) {
     const now = options.now ?? new Date()
     const yyyy = String(now.getUTCFullYear())
     const mm = String(now.getUTCMonth() + 1).padStart(2, '0')
     const dd = String(now.getUTCDate()).padStart(2, '0')
-    return `uc-go-peer-git-${yyyy}${mm}${dd}-${options.gitShortSha.trim()}`
+    return `${defaultId}-git-${yyyy}${mm}${dd}-${options.gitShortSha.trim()}`
   }
 
-  return 'uc-go-peer-v0.1.0'
+  return `${defaultId}-v0.1.0`
+}
+
+function defaultRootfsVersionId(contract: RootfsContract): string {
+  return contract.id.trim() || contract.rootfs.profile.trim() || 'rootfs'
+}
+
+function defaultRootfsImageBasename(contract: RootfsContract): string {
+  return `aleph-${contract.rootfs.profile}.qcow2`
+}
+
+function sourceSubdirectory(contract: RootfsContract): string | null {
+  const value = contract.source?.subdirectory?.trim()
+  return value && value !== '.' ? value : null
 }
 
 export function createRootfsBuildPlan(contract: RootfsContract, options: RootfsBuildOptions): RootfsBuildPlan {
   const projectDir = path.resolve(options.projectDir)
-  const alephDir = path.resolve(options.alephDir ?? path.join(projectDir, 'go-peer/aleph'))
+  const orbitdbRelayPinnerDir = options.orbitdbRelayPinnerDir?.trim()
+    ? path.resolve(options.orbitdbRelayPinnerDir)
+    : undefined
+  const subdirectory = sourceSubdirectory(contract)
+  const defaultAlephDir = subdirectory ? path.join(projectDir, subdirectory, 'aleph') : projectDir
+  const alephDir = path.resolve(options.alephDir ?? defaultAlephDir)
   const outDir = path.resolve(options.outDir ?? path.join(alephDir, 'dist-rootfs'))
-  const contractPath = path.resolve(options.contractPath ?? path.join(alephDir, 'root-profiles', `${contract.id}.json`))
-  const rootfsVersion = deriveRootfsVersion(options)
+  const defaultContractDir = subdirectory ? path.join(alephDir, 'root-profiles') : path.join(projectDir, 'root-profiles')
+  const contractPath = path.resolve(options.contractPath ?? path.join(defaultContractDir, `${contract.id}.json`))
+  const versionId = defaultRootfsVersionId(contract)
+  const rootfsVersion = deriveRootfsVersion({
+    ...options,
+    defaultId: versionId,
+    rootfsVersion: options.rootfsVersion?.trim() || undefined,
+    gitShortSha: options.gitShortSha,
+    now: options.now
+  })
+  const imageBasename = defaultRootfsImageBasename(contract)
 
   const copyTarget = contract.manifest.copyTarget?.trim() ?? ''
   const latestManifestPath = copyTarget
@@ -98,6 +131,7 @@ export function createRootfsBuildPlan(contract: RootfsContract, options: RootfsB
     contract,
     contractPath,
     projectDir,
+    orbitdbRelayPinnerDir,
     alephDir,
     outDir,
     driver: options.driver ?? 'auto',
@@ -119,14 +153,14 @@ export function createRootfsBuildPlan(contract: RootfsContract, options: RootfsB
     manifestPath: path.join(outDir, 'rootfs-manifest.json'),
     latestManifestPath,
     versionedManifestPath,
-    imagePath: path.join(outDir, 'aleph-uc-go-peer.qcow2'),
+    imagePath: path.join(outDir, imageBasename),
     baseImagePath: path.join(outDir, 'debian-12-genericcloud-amd64.qcow2'),
-    binaryPath: path.join(outDir, 'universal-chat-go')
+    binaryPath: path.join(outDir, path.basename(contract.rootfs.binaryPath || 'artifact'))
   }
 }
 
 export function rootfsBuildShellEnv(plan: RootfsBuildPlan): Record<string, string> {
-  return {
+  const env: Record<string, string> = {
     PROJECT_DIR: plan.projectDir,
     OUT_DIR: plan.outDir,
     ROOTFS_CONTRACT_FILE: plan.contractPath,
@@ -147,4 +181,10 @@ export function rootfsBuildShellEnv(plan: RootfsBuildPlan): Record<string, strin
     IPFS_GATEWAY_WAIT_ATTEMPTS: String(plan.ipfsGatewayWaitAttempts),
     IPFS_GATEWAY_WAIT_DELAY_SECONDS: String(plan.ipfsGatewayWaitDelaySeconds)
   }
+
+  if (plan.orbitdbRelayPinnerDir) {
+    env.ORBITDB_RELAY_PINNER_DIR = plan.orbitdbRelayPinnerDir
+  }
+
+  return env
 }

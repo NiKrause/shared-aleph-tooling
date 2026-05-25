@@ -2,6 +2,7 @@ import { pathToFileURL } from "node:url";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { Agent } from "undici";
 
 import {
   buildRootfs,
@@ -33,16 +34,44 @@ interface RootfsIpfsUploadResult {
   sourceSizeBytes?: number;
 }
 
+interface RootfsUploadRuntimeOptions {
+  driver: 'fetch' | 'curl';
+  headersTimeoutMs: number;
+  bodyTimeoutMs: number;
+  connectTimeoutMs: number;
+}
+
+async function deriveOrbitdbRelayPinnerVersion(sourceDir: string): Promise<string | undefined> {
+  const packageJsonPath = path.join(sourceDir, 'package.json')
+  try {
+    const payload = JSON.parse(await readFile(packageJsonPath, 'utf8')) as { version?: unknown }
+    if (typeof payload.version === 'string' && payload.version.trim()) {
+      return `orbitdb-relay-pinner-v${payload.version.trim().replace(/^v/u, '')}`
+    }
+  } catch {
+    return undefined
+  }
+
+  return undefined
+}
+
 export async function parseRootfsRunnerInputs(env: NodeJS.ProcessEnv = process.env): Promise<ParsedRootfsRunnerInputs> {
   const contractPath = requiredEnv('ALEPH_ROOTFS_CONTRACT_PATH', env);
   const contract = await readRootfsContractFile(contractPath);
+  const orbitdbRelayPinnerDir = optionalEnv('ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR', undefined, env) || undefined
+  const explicitRootfsVersion = optionalEnv('ALEPH_ROOTFS_VERSION', undefined, env) || undefined
+  const derivedOrbitdbVersion =
+    !explicitRootfsVersion && contract.id === 'orbitdb-relay-pinner' && orbitdbRelayPinnerDir
+      ? await deriveOrbitdbRelayPinnerVersion(orbitdbRelayPinnerDir)
+      : undefined
   const buildPlan = createRootfsBuildPlan(contract, {
     projectDir: requiredEnv('ALEPH_ROOTFS_PROJECT_DIR', env),
+    orbitdbRelayPinnerDir,
     contractPath,
     alephDir: optionalEnv('ALEPH_ROOTFS_ALEPH_DIR', undefined, env) || undefined,
     outDir: optionalEnv('ALEPH_ROOTFS_OUT_DIR', undefined, env) || undefined,
     driver: (optionalEnv('ALEPH_ROOTFS_DRIVER', 'auto', env) as 'auto' | 'host' | 'docker'),
-    rootfsVersion: optionalEnv('ALEPH_ROOTFS_VERSION', undefined, env) || undefined,
+    rootfsVersion: explicitRootfsVersion ?? derivedOrbitdbVersion,
     rootfsSizeMiB: Number(optionalEnv('ALEPH_ROOTFS_SIZE_MIB', '', env)) || undefined,
     rootfsImageSize: optionalEnv('ALEPH_ROOTFS_IMAGE_SIZE', undefined, env) || undefined,
     channel: optionalEnv('ALEPH_ROOTFS_CHANNEL', undefined, env) || undefined,
@@ -100,21 +129,142 @@ async function sha256Hex(payload: string): Promise<string> {
   return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-async function uploadRootfsImageToIpfs(buildPlan: RootfsBuildPlan): Promise<RootfsIpfsUploadResult> {
-  const bytes = await readFile(buildPlan.imagePath)
-  const file = new File([bytes], path.basename(buildPlan.imagePath))
-  const formData = new FormData()
-  formData.append('file', file)
+function positiveTimeoutMs(value: string | undefined, fallback: number): number {
+  const normalized = (value ?? '').trim()
+  if (!normalized) return fallback
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
 
-  const response = await fetch(buildPlan.ipfsAddUrl, {
-    method: 'POST',
-    body: formData,
-  })
-  if (!response.ok) {
-    throw new Error(`IPFS upload failed with ${response.status} ${response.statusText}`)
+function rootfsUploadRuntimeOptions(env: NodeJS.ProcessEnv = process.env): RootfsUploadRuntimeOptions {
+  const driver = optionalEnv('ALEPH_ROOTFS_UPLOAD_DRIVER', 'fetch', env).trim().toLowerCase()
+  if (driver !== 'fetch' && driver !== 'curl') {
+    throw new Error(`Unsupported ALEPH_ROOTFS_UPLOAD_DRIVER "${driver}". Expected "fetch" or "curl".`)
   }
 
-  const responseText = await response.text()
+  return {
+    driver,
+    headersTimeoutMs: positiveTimeoutMs(env.ALEPH_ROOTFS_UPLOAD_HEADERS_TIMEOUT_MS, 15 * 60 * 1000),
+    bodyTimeoutMs: positiveTimeoutMs(env.ALEPH_ROOTFS_UPLOAD_BODY_TIMEOUT_MS, 15 * 60 * 1000),
+    connectTimeoutMs: positiveTimeoutMs(env.ALEPH_ROOTFS_UPLOAD_CONNECT_TIMEOUT_MS, 30 * 1000),
+  }
+}
+
+function describeUploadError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return String(error)
+  }
+
+  const details = [
+    `${error.name}: ${error.message}`,
+  ]
+  if (error.cause !== undefined) {
+    if (error.cause instanceof Error) {
+      details.push(`cause=${error.cause.name}: ${error.cause.message}`)
+    } else {
+      details.push(`cause=${String(error.cause)}`)
+    }
+  }
+  return details.join('; ')
+}
+
+async function uploadRootfsImageToIpfsWithFetch(
+  buildPlan: RootfsBuildPlan,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<RootfsIpfsUploadResult> {
+  const runtime = rootfsUploadRuntimeOptions(env)
+  const dispatcher = new Agent({
+    connect: {
+      timeout: runtime.connectTimeoutMs,
+    },
+    headersTimeout: runtime.headersTimeoutMs,
+    bodyTimeout: runtime.bodyTimeoutMs,
+  })
+
+  try {
+    const bytes = await readFile(buildPlan.imagePath)
+    const file = new File([bytes], path.basename(buildPlan.imagePath))
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch(buildPlan.ipfsAddUrl, {
+      method: 'POST',
+      body: formData,
+      dispatcher,
+    })
+    if (!response.ok) {
+      throw new Error(`IPFS upload failed with ${response.status} ${response.statusText}`)
+    }
+
+    const responseText = await response.text()
+    const lines = responseText.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
+    if (lines.length === 0) {
+      throw new Error('No response received from the IPFS add endpoint')
+    }
+
+    const payload = JSON.parse(lines.at(-1) ?? '{}') as { Hash?: string; Size?: string | number }
+    const cid = payload.Hash?.trim()
+    if (!cid) {
+      throw new Error(`IPFS add response did not include a Hash: ${JSON.stringify(payload)}`)
+    }
+
+    let sourceSizeBytes: number | undefined
+    if (typeof payload.Size === 'number' && Number.isFinite(payload.Size) && payload.Size > 0) {
+      sourceSizeBytes = payload.Size
+    } else if (typeof payload.Size === 'string' && /^\d+$/u.test(payload.Size)) {
+      sourceSizeBytes = Number(payload.Size)
+    }
+
+    return { cid, responseText, sourceSizeBytes }
+  } catch (error) {
+    throw new Error(
+      `IPFS upload via fetch failed for ${buildPlan.imagePath} -> ${buildPlan.ipfsAddUrl}; headersTimeoutMs=${runtime.headersTimeoutMs}; bodyTimeoutMs=${runtime.bodyTimeoutMs}; connectTimeoutMs=${runtime.connectTimeoutMs}; ${describeUploadError(error)}`,
+      { cause: error },
+    )
+  } finally {
+    await dispatcher.close()
+  }
+}
+
+async function uploadRootfsImageToIpfsWithCurl(buildPlan: RootfsBuildPlan): Promise<RootfsIpfsUploadResult> {
+  const responseText = await new Promise<string>((resolve, reject) => {
+    const curl = spawn(
+      'curl',
+      [
+        '--fail',
+        '--silent',
+        '--show-error',
+        '-X',
+        'POST',
+        '-F',
+        `file=@${buildPlan.imagePath}`,
+        buildPlan.ipfsAddUrl,
+      ],
+      { stdio: ['ignore', 'pipe', 'pipe'] },
+    )
+
+    let stdout = ''
+    let stderr = ''
+    curl.stdout.on('data', (chunk) => {
+      stdout += chunk.toString()
+    })
+    curl.stderr.on('data', (chunk) => {
+      stderr += chunk.toString()
+    })
+    curl.on('error', (error) => {
+      reject(error)
+    })
+    curl.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout)
+        return
+      }
+
+      const details = stderr.trim()
+      reject(new Error(details ? `IPFS upload failed: ${details}` : `curl failed with exit code ${code ?? 'unknown'}`))
+    })
+  })
+
   const lines = responseText.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
   if (lines.length === 0) {
     throw new Error('No response received from the IPFS add endpoint')
@@ -134,6 +284,19 @@ async function uploadRootfsImageToIpfs(buildPlan: RootfsBuildPlan): Promise<Root
   }
 
   return { cid, responseText, sourceSizeBytes }
+}
+
+async function uploadRootfsImageToIpfs(
+  buildPlan: RootfsBuildPlan,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<RootfsIpfsUploadResult> {
+  const runtime = rootfsUploadRuntimeOptions(env)
+  switch (runtime.driver) {
+    case 'fetch':
+      return uploadRootfsImageToIpfsWithFetch(buildPlan, env)
+    case 'curl':
+      return uploadRootfsImageToIpfsWithCurl(buildPlan)
+  }
 }
 
 async function waitForIpfsCidAvailable(buildPlan: RootfsBuildPlan, cid: string): Promise<void> {
@@ -268,6 +431,7 @@ export async function runRootfsMode(
     parseInputs?: typeof parseRootfsRunnerInputs;
     buildRootfs?: typeof buildRootfs;
     runCommand?: typeof runLocalCommand;
+    uploadRootfsImageToIpfs?: typeof uploadRootfsImageToIpfs;
   } = {},
 ): Promise<void> {
   const mode = optionalEnv('ALEPH_VM_MODE', 'rootfs-publish', env);
@@ -303,7 +467,9 @@ export async function runRootfsMode(
     let ipfsAddResponseContent: string | undefined
     let storeMessageContent: string | undefined
     if (!originalPlan.skipUpload) {
-      const upload = await uploadRootfsImageToIpfs(originalPlan)
+      const upload = hooks.uploadRootfsImageToIpfs
+        ? await hooks.uploadRootfsImageToIpfs(originalPlan)
+        : await uploadRootfsImageToIpfs(originalPlan, env)
       await waitForIpfsCidAvailable(originalPlan, upload.cid)
       const itemHash = await pinRootfsCidOnAleph(originalPlan, upload.cid, env)
       await waitForAlephMessageProcessed(originalPlan, itemHash)

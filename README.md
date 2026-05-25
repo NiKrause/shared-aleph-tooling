@@ -120,6 +120,18 @@ pnpm aleph deploy
 pnpm aleph rootfs-publish
 ```
 
+For the working OrbitDB relay profile, the shared rootfs runner now supports
+the external source checkout directly:
+
+```bash
+export ALEPH_ROOTFS_PROJECT_DIR=/path/to/relay-deployer-pwa
+export ALEPH_ROOTFS_CONTRACT_PATH=/path/to/shared-aleph-tooling/packages/rootfs/reference/orbitdb-relay-pinner/contract.json
+export ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR=/path/to/orbitdb-relay-pinner
+
+pnpm aleph rootfs-build
+pnpm aleph rootfs-publish
+```
+
 This CLI is a thin wrapper around the shared Node runners and uses the same
 deployment logic as the shared action/workflow layers.
 

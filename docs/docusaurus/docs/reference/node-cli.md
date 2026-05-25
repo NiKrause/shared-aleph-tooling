@@ -99,6 +99,19 @@ pnpm aleph rootfs-build
 pnpm aleph rootfs-publish
 ```
 
+OrbitDB relay example:
+
+```bash
+cd /path/to/shared-aleph-tooling
+
+export ALEPH_ROOTFS_PROJECT_DIR=/path/to/relay-deployer-pwa
+export ALEPH_ROOTFS_CONTRACT_PATH=/path/to/shared-aleph-tooling/packages/rootfs/reference/orbitdb-relay-pinner/contract.json
+export ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR=/path/to/orbitdb-relay-pinner
+
+pnpm aleph rootfs-build
+pnpm aleph rootfs-publish
+```
+
 Minimum required environment for `rootfs-publish`:
 
 - `ALEPH_ROOTFS_PROJECT_DIR`
@@ -112,6 +125,8 @@ Common optional environment:
 - `ALEPH_ROOTFS_SKIP_BUILD`
 - `ALEPH_ROOTFS_IPFS_ADD_URL`
 - `ALEPH_ROOTFS_ALEPH_API_HOST`
+- `ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR`
+  Required when the contract/profile is `orbitdb-relay-pinner`.
 
 ## Relationship To GitHub Automation
 

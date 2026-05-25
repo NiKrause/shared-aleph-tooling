@@ -23,7 +23,8 @@
     "@libp2p/websockets": "^9.2.9",
     "@multiformats/multiaddr": "^12.5.1",
     "ethers": "^6.15.0",
-    "libp2p": "^2.8.3"
+    "libp2p": "^2.8.3",
+    "undici": "^6.22.0"
   },
   "scripts": {
     "build": "node --check ./src/index.ts && node --check ./src/env.ts && node --check ./src/github-outputs.ts && node --check ./src/signer.ts && node --check ./src/deploy-outputs.ts && node --check ./src/deploy-plan.ts && node --check ./src/deploy-executor.ts && node --check ./src/action-runner.ts && node --check ./src/rootfs-runner.ts && node --check ./src/relay-probe.ts && node --check ./src/site-runner.ts",

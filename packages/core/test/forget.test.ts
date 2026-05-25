@@ -35,11 +35,15 @@ test('createUnsignedForgetMessage requires at least one hash or aggregate and ha
 })
 
 test('forgetAlephMessages signs and broadcasts a forget message', async () => {
+  const progressStages: string[] = []
   const result = await forgetAlephMessages({
     sender: '0x1234',
     hashes: ['instance-1'],
     signer: async () => '0xsigned',
     hasher: async () => 'hash-1',
+    onProgress: (event) => {
+      progressStages.push(event.stage)
+    },
     fetch: async (url, init) => {
       assert.match(String(url), /\/api\/v0\/messages$/)
       assert.equal(init?.method, 'POST')
@@ -49,6 +53,12 @@ test('forgetAlephMessages signs and broadcasts a forget message', async () => {
 
   assert.equal(result.itemHash, 'hash-1')
   assert.equal(result.status, 'processed')
+  assert.deepEqual(progressStages, [
+    'building-delete-message',
+    'signing-delete-message',
+    'broadcasting-delete',
+    'delete-completed'
+  ])
 })
 
 test('cleanupFailedDeployment swallows forget errors into an error payload', async () => {

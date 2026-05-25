@@ -1,139 +1,252 @@
-import type { PortMapping } from '@le-space/shared-types'
+import type {
+  DeploymentProgressListener,
+  PortMapping,
+} from "@le-space/shared-types";
 
-import type { FetchLike } from './manifests.ts'
+import type { FetchLike } from "./manifests.ts";
 
 export type TcpProbeResult = {
-  ok: boolean | null
-  error?: string
-}
+  ok: boolean | null;
+  error?: string;
+};
 
 export type HttpProbeResult = {
-  ok: boolean
-  status?: number
-  url?: string
-  error?: string
-}
+  ok: boolean;
+  status?: number;
+  url?: string;
+  error?: string;
+};
 
 function proxyHostnameFromUrl(value: string | null | undefined): string | null {
   try {
-    return value ? new URL(value).hostname : null
+    return value ? new URL(value).hostname : null;
   } catch {
-    return null
+    return null;
   }
 }
 
-async function defaultHttpProbe(fetch: FetchLike, url: string, timeoutMs = 10000): Promise<HttpProbeResult> {
+async function defaultHttpProbe(
+  fetch: FetchLike,
+  url: string,
+  timeoutMs = 10000,
+): Promise<HttpProbeResult> {
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal
-    })
-    clearTimeout(timeout)
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
     return {
       ok: response.ok,
       status: response.status,
-      url: response.url
-    }
+      url: response.url,
+    };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
 export async function notifyCrnAllocation(args: {
-  crnUrl: string | null | undefined
-  itemHash: string
-  fetch: FetchLike
+  crnUrl: string | null | undefined;
+  itemHash: string;
+  fetch: FetchLike;
 }): Promise<{
-  status: 'confirmed' | 'unconfirmed' | 'skipped'
-  reason?: string
-  payload?: unknown
+  status: "confirmed" | "unconfirmed" | "skipped";
+  reason?: string;
+  payload?: unknown;
 }> {
-  const normalizedCrnUrl = typeof args.crnUrl === 'string' ? args.crnUrl.trim().replace(/\/+$/, '') : ''
+  const normalizedCrnUrl =
+    typeof args.crnUrl === "string"
+      ? args.crnUrl.trim().replace(/\/+$/, "")
+      : "";
   if (!normalizedCrnUrl) {
     return {
-      status: 'skipped',
-      reason: 'No CRN URL available for allocation notification.'
-    }
+      status: "skipped",
+      reason: "No CRN URL available for allocation notification.",
+    };
   }
 
   try {
-    const response = await args.fetch(`${normalizedCrnUrl}/control/allocation/notify`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json'
+    const response = await args.fetch(
+      `${normalizedCrnUrl}/control/allocation/notify`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ instance: args.itemHash }),
       },
-      body: JSON.stringify({ instance: args.itemHash })
-    })
-    const payload = await response.json().catch(() => null)
+    );
+    const payload = await response.json().catch(() => null);
+    const responseText =
+      payload == null
+        ? ""
+        : typeof payload === "string"
+          ? payload
+          : JSON.stringify(payload);
 
     if (!response.ok) {
       return {
-        status: 'unconfirmed',
-        reason: `CRN allocation notify returned ${response.status}.`,
-        payload
-      }
+        status: "unconfirmed",
+        reason: `CRN allocation notify returned ${response.status}${responseText ? ` ${responseText}` : ""}.`,
+        payload,
+      };
     }
 
     return {
-      status: 'confirmed',
-      payload
-    }
+      status: "confirmed",
+      payload,
+    };
   } catch (error) {
     return {
-      status: 'unconfirmed',
-      reason: error instanceof Error ? error.message : String(error)
+      status: "unconfirmed",
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function isRetryableAllocationNotifyReason(
+  reason: string | null | undefined,
+): boolean {
+  const normalized = String(reason ?? "").toLowerCase();
+
+  return (
+    normalized.includes("503") &&
+    (normalized.includes("node hash not yet discovered") ||
+      normalized.includes("cannot accept targeted allocations"))
+  );
+}
+
+export async function notifyCrnAllocationWithRetry(args: {
+  crnUrl: string | null | undefined;
+  itemHash: string;
+  fetch: FetchLike;
+  attempts?: number;
+  delayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  onProgress?: DeploymentProgressListener;
+}): Promise<{
+  status: "confirmed" | "unconfirmed" | "skipped";
+  reason?: string;
+  payload?: unknown;
+}> {
+  const attempts = Math.max(1, Number(args.attempts ?? 6));
+  const delayMs = Math.max(0, Number(args.delayMs ?? 2000));
+  const sleep =
+    args.sleep ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+
+  let lastResult: {
+    status: "confirmed" | "unconfirmed" | "skipped";
+    reason?: string;
+    payload?: unknown;
+  } | null = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    args.onProgress?.({
+      stage: "notifying-crn",
+      label: "Notifying selected CRN",
+      progress: 84,
+      status: "info",
+      itemHash: args.itemHash,
+      detail: `${attempt + 1}/${attempts} ${String(args.crnUrl ?? "").trim() || "selected CRN"}`,
+      error: null,
+      timestamp: Date.now(),
+    });
+
+    const result = await notifyCrnAllocation({
+      crnUrl: args.crnUrl,
+      itemHash: args.itemHash,
+      fetch: args.fetch,
+    });
+
+    if (result.status === "confirmed" || result.status === "skipped") {
+      return result;
+    }
+
+    lastResult = result;
+    if (!isRetryableAllocationNotifyReason(result.reason)) {
+      return result;
+    }
+
+    if (attempt < attempts - 1) {
+      await sleep(delayMs);
     }
   }
+
+  return (
+    lastResult ?? {
+      status: "unconfirmed",
+      reason: "CRN allocation notify was not confirmed.",
+    }
+  );
 }
 
 export async function waitForSetupEndpoint(args: {
-  hostIpv4: string
-  setupPort: number
-  fetch: FetchLike
-  attempts?: number
-  delayMs?: number
-  httpTimeoutMs?: number
-  sleep?: (ms: number) => Promise<void>
-  onAttempt?: (result: HttpProbeResult, attempt: number, attempts: number) => void
+  hostIpv4: string;
+  setupPort: number;
+  fetch: FetchLike;
+  attempts?: number;
+  delayMs?: number;
+  httpTimeoutMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  onAttempt?: (
+    result: HttpProbeResult,
+    attempt: number,
+    attempts: number,
+  ) => void;
 }): Promise<HttpProbeResult> {
-  const attempts = Math.max(1, Number(args.attempts ?? 15))
-  const delayMs = Math.max(0, Number(args.delayMs ?? 4000))
-  const sleep = args.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
-  const url = `http://${args.hostIpv4}:${args.setupPort}/health`
+  const attempts = Math.max(1, Number(args.attempts ?? 15));
+  const delayMs = Math.max(0, Number(args.delayMs ?? 4000));
+  const sleep =
+    args.sleep ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const url = `http://${args.hostIpv4}:${args.setupPort}/health`;
 
-  let result = await defaultHttpProbe(args.fetch, url, Number(args.httpTimeoutMs ?? 10000))
-  args.onAttempt?.(result, 1, attempts)
+  let result = await defaultHttpProbe(
+    args.fetch,
+    url,
+    Number(args.httpTimeoutMs ?? 10000),
+  );
+  args.onAttempt?.(result, 1, attempts);
   for (let attempt = 1; attempt < attempts; attempt += 1) {
-    if (result.ok) return result
-    await sleep(delayMs)
-    result = await defaultHttpProbe(args.fetch, url, Number(args.httpTimeoutMs ?? 10000))
-    args.onAttempt?.(result, attempt + 1, attempts)
+    if (result.ok) return result;
+    await sleep(delayMs);
+    result = await defaultHttpProbe(
+      args.fetch,
+      url,
+      Number(args.httpTimeoutMs ?? 10000),
+    );
+    args.onAttempt?.(result, attempt + 1, attempts);
   }
 
-  return result
+  return result;
 }
 
 export async function configureUcGoPeer(args: {
-  hostIpv4: string
-  setupPort: number
-  publicIpv6?: string | null
-  tcpPort?: number | null
-  wsPort?: number | null
-  udpPort?: number | null
-  quicPort?: number | null
-  webrtcPort?: number | null
-  proxyUrl?: string | null
-  fetch: FetchLike
-  timeoutMs?: number
+  hostIpv4: string;
+  setupPort: number;
+  publicIpv6?: string | null;
+  tcpPort?: number | null;
+  wsPort?: number | null;
+  udpPort?: number | null;
+  quicPort?: number | null;
+  webrtcPort?: number | null;
+  proxyUrl?: string | null;
+  fetch: FetchLike;
+  timeoutMs?: number;
 }): Promise<unknown> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), Number(args.timeoutMs ?? 180000))
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Number(args.timeoutMs ?? 180000),
+  );
 
   const payload = {
     public_ipv4: args.hostIpv4,
@@ -143,142 +256,250 @@ export async function configureUcGoPeer(args: {
     ws_port: args.wsPort ?? undefined,
     udp_port: args.udpPort ?? undefined,
     quic_port: args.quicPort ?? undefined,
-    webrtc_port: args.webrtcPort ?? undefined
-  }
+    webrtc_port: args.webrtcPort ?? undefined,
+  };
 
   try {
-    const response = await args.fetch(`http://${args.hostIpv4}:${args.setupPort}/configure`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json'
+    const response = await args.fetch(
+      `http://${args.hostIpv4}:${args.setupPort}/configure`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    })
-    const responsePayload = await response.json().catch(() => null)
+    );
+    const responsePayload = await response.json().catch(() => null);
 
     if (!response.ok) {
       throw new Error(
-        `Relay setup request failed: ${response.status} ${typeof responsePayload === 'string' ? responsePayload : JSON.stringify(responsePayload ?? {})}`
-      )
+        `Relay setup request failed: ${response.status} ${typeof responsePayload === "string" ? responsePayload : JSON.stringify(responsePayload ?? {})}`,
+      );
     }
 
-    return responsePayload
+    return responsePayload;
   } finally {
-    clearTimeout(timeout)
+    clearTimeout(timeout);
+  }
+}
+
+export async function configureOrbitdbRelaySetup(args: {
+  hostIpv4: string;
+  setupPort: number;
+  publicIpv6?: string | null;
+  tcpPort: number;
+  wsPort: number;
+  metricsPort?: number | null;
+  metricsHttpsPort?: number | null;
+  webrtcPort?: number | null;
+  quicPort?: number | null;
+  proxyUrl?: string | null;
+  fetch: FetchLike;
+  timeoutMs?: number;
+}): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Number(args.timeoutMs ?? 180000),
+  );
+
+  const payload = {
+    public_ipv4: args.hostIpv4,
+    public_ipv6: args.publicIpv6 ?? undefined,
+    tcp_port: args.tcpPort,
+    ws_port: args.wsPort,
+    proxy_url: args.proxyUrl ?? undefined,
+    metrics_port: args.metricsPort ?? undefined,
+    metrics_https_port: args.metricsHttpsPort ?? undefined,
+    webrtc_port: args.webrtcPort ?? undefined,
+    quic_port: args.quicPort ?? undefined,
+  };
+
+  try {
+    const response = await args.fetch(
+      `http://${args.hostIpv4}:${args.setupPort}/configure`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      },
+    );
+    const responsePayload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(
+        `Relay setup request failed: ${response.status} ${typeof responsePayload === "string" ? responsePayload : JSON.stringify(responsePayload ?? {})}`,
+      );
+    }
+
+    return responsePayload;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
 export async function fetchUcGoPeerMetadata(args: {
-  hostIpv4: string
-  setupPort: number
-  fetch: FetchLike
-  attempts?: number
-  delayMs?: number
-  timeoutMs?: number
-  sleep?: (ms: number) => Promise<void>
-  onAttempt?: (payload: unknown, ready: boolean, attempt: number, attempts: number) => void
+  hostIpv4: string;
+  setupPort: number;
+  fetch: FetchLike;
+  attempts?: number;
+  delayMs?: number;
+  timeoutMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  onAttempt?: (
+    payload: unknown,
+    ready: boolean,
+    attempt: number,
+    attempts: number,
+  ) => void;
 }): Promise<unknown> {
-  const attempts = Math.max(1, Number(args.attempts ?? 60))
-  const delayMs = Math.max(0, Number(args.delayMs ?? 3000))
-  const sleep = args.sleep ?? ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)))
-  let lastPayload: unknown = null
+  const attempts = Math.max(1, Number(args.attempts ?? 60));
+  const delayMs = Math.max(0, Number(args.delayMs ?? 3000));
+  const sleep =
+    args.sleep ??
+    ((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+  let lastPayload: unknown = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), Number(args.timeoutMs ?? 180000))
+    const controller = new AbortController();
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Number(args.timeoutMs ?? 180000),
+    );
     try {
-      const response = await args.fetch(`http://${args.hostIpv4}:${args.setupPort}/metadata`, {
-        signal: controller.signal
-      })
-      const payload = await response.json().catch(() => null)
-      lastPayload = payload
+      const response = await args.fetch(
+        `http://${args.hostIpv4}:${args.setupPort}/metadata`,
+        {
+          signal: controller.signal,
+        },
+      );
+      const payload = await response.json().catch(() => null);
+      lastPayload = payload;
 
       args.onAttempt?.(
         payload,
-        Boolean(response.ok && payload && typeof payload === 'object' && (payload as { status?: unknown }).status === 'ready'),
+        Boolean(
+          response.ok &&
+            payload &&
+            typeof payload === "object" &&
+            (payload as { status?: unknown }).status === "ready",
+        ),
         attempt + 1,
-        attempts
-      )
+        attempts,
+      );
 
-      if (response.ok && payload && typeof payload === 'object' && (payload as { status?: unknown }).status === 'ready') {
-        return payload
+      if (
+        response.ok &&
+        payload &&
+        typeof payload === "object" &&
+        (payload as { status?: unknown }).status === "ready"
+      ) {
+        return payload;
       }
       if (response.status >= 500) {
         throw new Error(
-          `Relay metadata request failed: ${response.status} ${typeof payload === 'string' ? payload : JSON.stringify(payload ?? {})}`
-        )
+          `Relay metadata request failed: ${response.status} ${typeof payload === "string" ? payload : JSON.stringify(payload ?? {})}`,
+        );
       }
     } finally {
-      clearTimeout(timeout)
+      clearTimeout(timeout);
     }
 
     if (attempt < attempts - 1) {
-      await sleep(delayMs)
+      await sleep(delayMs);
     }
   }
 
   throw new Error(
     `Relay metadata did not become ready after ${attempts} attempts: ${
-      typeof lastPayload === 'string' ? lastPayload : JSON.stringify(lastPayload ?? {})
-    }`
-  )
+      typeof lastPayload === "string"
+        ? lastPayload
+        : JSON.stringify(lastPayload ?? {})
+    }`,
+  );
 }
 
 export async function verifyUcGoPeerReachability(args: {
-  hostIpv4?: string | null
-  mappedPorts?: Record<string, PortMapping>
-  proxyUrl?: string | null
-  verifyProxyHttp?: boolean
-  skipInternalPorts?: string[]
-  tcpTimeoutMs?: number
-  httpTimeoutMs?: number
-  fetch: FetchLike
-  tcpProbe: (host: string, port: number, timeoutMs?: number) => Promise<TcpProbeResult>
-  httpProbe?: (url: string, timeoutMs?: number) => Promise<HttpProbeResult>
+  hostIpv4?: string | null;
+  mappedPorts?: Record<string, PortMapping>;
+  proxyUrl?: string | null;
+  verifyProxyHttp?: boolean;
+  skipInternalPorts?: string[];
+  tcpTimeoutMs?: number;
+  httpTimeoutMs?: number;
+  fetch: FetchLike;
+  tcpProbe: (
+    host: string,
+    port: number,
+    timeoutMs?: number,
+  ) => Promise<TcpProbeResult>;
+  httpProbe?: (url: string, timeoutMs?: number) => Promise<HttpProbeResult>;
 }): Promise<{
-  ok: boolean
-  checks: Record<string, Record<string, unknown>>
+  ok: boolean;
+  checks: Record<string, Record<string, unknown>>;
 }> {
-  const checks: Record<string, Record<string, unknown>> = {}
-  const mappedPorts = args.mappedPorts ?? {}
-  const hostIpv4 = args.hostIpv4
-  const skippedInternalPorts = new Set((args.skipInternalPorts ?? ['80']).map((value) => String(value)))
-  const httpProbe = args.httpProbe ?? ((url: string, timeoutMs?: number) => defaultHttpProbe(args.fetch, url, timeoutMs))
+  const checks: Record<string, Record<string, unknown>> = {};
+  const mappedPorts = args.mappedPorts ?? {};
+  const hostIpv4 = args.hostIpv4;
+  const skippedInternalPorts = new Set(
+    (args.skipInternalPorts ?? ["80"]).map((value) => String(value)),
+  );
+  const httpProbe =
+    args.httpProbe ??
+    ((url: string, timeoutMs?: number) =>
+      defaultHttpProbe(args.fetch, url, timeoutMs));
 
   if (hostIpv4) {
     for (const [internalPort, mapping] of Object.entries(mappedPorts)) {
-      if (skippedInternalPorts.has(String(internalPort))) continue
+      if (skippedInternalPorts.has(String(internalPort))) continue;
 
       if (mapping?.tcp === true && mapping?.host) {
         checks[`tcp:${internalPort}`] = {
           host: hostIpv4,
           port: mapping.host,
-          ...(await args.tcpProbe(hostIpv4, mapping.host, Number(args.tcpTimeoutMs ?? 5000)))
-        }
+          ...(await args.tcpProbe(
+            hostIpv4,
+            mapping.host,
+            Number(args.tcpTimeoutMs ?? 5000),
+          )),
+        };
       } else if (mapping?.udp === true && mapping?.host) {
         checks[`udp:${internalPort}`] = {
           host: hostIpv4,
           port: mapping.host,
           ok: null,
-          note: 'UDP mapping published; CI does not perform an application-level UDP handshake probe.'
-        }
+          note: "UDP mapping published; CI does not perform an application-level UDP handshake probe.",
+        };
       }
     }
   }
 
   if (args.proxyUrl && args.verifyProxyHttp !== false) {
-    checks['https:proxy'] = await httpProbe(args.proxyUrl, Number(args.httpTimeoutMs ?? 10000))
+    checks["https:proxy"] = await httpProbe(
+      args.proxyUrl,
+      Number(args.httpTimeoutMs ?? 10000),
+    );
   }
 
-  const proxyHostname = proxyHostnameFromUrl(args.proxyUrl)
+  const proxyHostname = proxyHostnameFromUrl(args.proxyUrl);
   if (proxyHostname) {
-    checks['tcp:proxy-443'] = await args.tcpProbe(proxyHostname, 443, Number(args.tcpTimeoutMs ?? 5000))
+    checks["tcp:proxy-443"] = await args.tcpProbe(
+      proxyHostname,
+      443,
+      Number(args.tcpTimeoutMs ?? 5000),
+    );
   }
 
-  const failedChecks = Object.entries(checks).filter(([, value]) => value?.ok === false)
+  const failedChecks = Object.entries(checks).filter(
+    ([, value]) => value?.ok === false,
+  );
   return {
     ok: failedChecks.length === 0,
-    checks
-  }
+    checks,
+  };
 }

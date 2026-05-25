@@ -86,6 +86,10 @@ async function main() {
       description: packageJson.description,
       license: packageJson.license,
       type: packageJson.type,
+      files:
+        packageJson.name === '@le-space/ui'
+          ? ['shared', 'react', 'svelte', 'styles.css', 'README.md']
+          : undefined,
       main: packageJson.name === '@le-space/ui' ? './shared/index.js' : './index.js',
       types: packageJson.name === '@le-space/ui' ? './shared/index.d.ts' : './index.d.ts',
       exports:

@@ -9,6 +9,7 @@ import type {
   RootfsResolution,
   Tier
 } from '../../../browser/src/types.ts'
+import type { DeploymentProgressEvent } from '../../../shared-types/src/deployment.ts'
 
 export type SponsorRelayHealthTone = 'ok' | 'caution' | 'error' | 'idle'
 
@@ -111,6 +112,7 @@ export interface SponsorRelayState {
   instances: CompactInstanceRecord[]
   relayPing: RelayPingState
   lastDeploymentHash: string | null
+  deploymentProgress: DeploymentProgressEvent
 }
 
 export type SponsorRelaySubscriber = (state: SponsorRelayState) => void

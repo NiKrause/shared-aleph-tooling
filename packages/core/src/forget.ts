@@ -1,4 +1,4 @@
-import type { AlephBroadcastMessage, MessageHasher, MessageSigner } from '@le-space/shared-types'
+import type { AlephBroadcastMessage, DeploymentProgressListener, MessageHasher, MessageSigner } from '@le-space/shared-types'
 
 import { broadcastAlephMessage, normalizeBroadcastStatus, type JsonFetchLike, signAlephMessage } from './broadcast.ts'
 import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
@@ -55,7 +55,18 @@ export async function forgetAlephMessages(args: {
   apiHost?: string
   sync?: boolean
   now?: number
+  onProgress?: DeploymentProgressListener
 }) {
+  args.onProgress?.({
+    stage: 'building-delete-message',
+    label: 'Building delete message',
+    progress: 18,
+    status: 'info',
+    itemHash: null,
+    detail: [...new Set((args.hashes ?? []).filter(Boolean))].join(', ') || null,
+    error: null,
+    timestamp: Date.now()
+  })
   const unsignedMessage = await createUnsignedForgetMessage({
     sender: args.sender,
     hashes: args.hashes,
@@ -65,11 +76,43 @@ export async function forgetAlephMessages(args: {
     channel: args.channel,
     now: args.now
   })
+  args.onProgress?.({
+    stage: 'signing-delete-message',
+    label: 'Waiting for delete signature',
+    progress: 42,
+    status: 'info',
+    itemHash: unsignedMessage.item_hash,
+    detail: unsignedMessage.item_hash,
+    error: null,
+    timestamp: Date.now()
+  })
   const message = await signAlephMessage(unsignedMessage, args.signer)
+  args.onProgress?.({
+    stage: 'broadcasting-delete',
+    label: 'Broadcasting delete to Aleph',
+    progress: 68,
+    status: 'warning',
+    itemHash: message.item_hash,
+    detail: message.item_hash,
+    error: null,
+    timestamp: Date.now()
+  })
   const { response, httpStatus } = await broadcastAlephMessage(message, {
     apiHost: args.apiHost,
     sync: args.sync,
     fetch: args.fetch
+  })
+
+  const status = normalizeBroadcastStatus(httpStatus, response?.message_status)
+  args.onProgress?.({
+    stage: status === 'rejected' ? 'error' : 'delete-completed',
+    label: status === 'rejected' ? 'Delete rejected by Aleph' : 'Delete submitted to Aleph',
+    progress: 100,
+    status: status === 'rejected' ? 'error' : 'success',
+    itemHash: message.item_hash,
+    detail: status === 'rejected' ? String(response?.details ?? 'Aleph rejected this delete request.') : null,
+    error: status === 'rejected' ? String(response?.details ?? 'Aleph rejected this delete request.') : null,
+    timestamp: Date.now()
   })
 
   return {
@@ -77,7 +120,7 @@ export async function forgetAlephMessages(args: {
     itemHash: message.item_hash,
     response,
     httpStatus,
-    status: normalizeBroadcastStatus(httpStatus, response?.message_status)
+    status
   }
 }
 

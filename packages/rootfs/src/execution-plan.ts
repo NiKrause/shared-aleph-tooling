@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import { rootfsBuildShellEnv } from "./build-plan.ts";
 import { referenceProfileRootfsDir, type RootfsContract } from "./contract.ts";
 import { type RootfsBuildPlan } from "./build-plan.ts";
 
@@ -29,6 +30,7 @@ export interface RootfsExecutionPlanOptions {
   referenceRootfsDir?: string;
   projectMountPath?: string;
   rootfsMountPath?: string;
+  orbitdbRelayPinnerMountPath?: string;
   dockerImageTag?: string;
 }
 
@@ -43,6 +45,16 @@ function ensurePathWithin(parent: string, child: string, label: string): string 
 function containerPathForProjectFile(hostPath: string, projectDir: string, mountPath: string, label: string): string {
   const relative = ensurePathWithin(projectDir, hostPath, label);
   return path.posix.join(mountPath, relative.split(path.sep).join('/'));
+}
+
+function containerContractPathForFile(hostPath: string, projectDir: string, projectMountPath: string): string {
+  const relative = path.relative(projectDir, hostPath);
+  if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return path.posix.join(projectMountPath, relative.split(path.sep).join('/'));
+  }
+
+  const basename = path.posix.basename(hostPath);
+  return path.posix.join('/workspace/shared-contracts', basename);
 }
 
 function resolveReferenceRootfsDir(contract: RootfsContract, override?: string): string {
@@ -65,12 +77,7 @@ export function createHostRootfsExecutionPlan(
       command: '/bin/bash',
       args: [path.join(referenceRootfsDir, 'build-rootfs-image.sh')],
       workdir: referenceRootfsDir,
-      env: {
-        PROJECT_DIR: plan.projectDir,
-        OUT_DIR: plan.outDir,
-        ROOTFS_CONTRACT_FILE: plan.contractPath,
-        ROOTFS_IMAGE_SIZE: plan.rootfsImageSize,
-      },
+      env: rootfsBuildShellEnv(plan),
     },
   };
 }
@@ -82,13 +89,38 @@ export function createDockerRootfsExecutionPlan(
   const referenceRootfsDir = resolveReferenceRootfsDir(plan.contract, options.referenceRootfsDir);
   const projectMountPath = options.projectMountPath ?? '/workspace/project';
   const rootfsMountPath = options.rootfsMountPath ?? '/workspace/shared-rootfs';
+  const orbitdbRelayPinnerMountPath = options.orbitdbRelayPinnerMountPath ?? '/workspace-orbitdb-relay-pinner';
   const dockerImageTag = options.dockerImageTag ?? `${plan.contract.id}-rootfs-builder:local`;
 
   const containerProjectDir = projectMountPath;
-  const containerContractPath = containerPathForProjectFile(plan.contractPath, plan.projectDir, projectMountPath, 'contractPath');
+  const containerContractPath = containerContractPathForFile(plan.contractPath, plan.projectDir, projectMountPath);
   const containerOutDir = containerPathForProjectFile(plan.outDir, plan.projectDir, projectMountPath, 'outDir');
   const hostUid = typeof process.getuid === 'function' ? String(process.getuid()) : '1000';
   const hostGid = typeof process.getgid === 'function' ? String(process.getgid()) : '1000';
+  const runEnv: Record<string, string> = {
+    ...rootfsBuildShellEnv(plan),
+    PROJECT_DIR: containerProjectDir,
+    OUT_DIR: containerOutDir,
+    ROOTFS_CONTRACT_FILE: containerContractPath,
+    HOST_UID: hostUid,
+    HOST_GID: hostGid,
+  };
+  const volumeMounts = [
+    '-v',
+    `${plan.projectDir}:${projectMountPath}`,
+    '-v',
+    `${referenceRootfsDir}:${rootfsMountPath}`,
+  ];
+
+  const contractRelative = path.relative(plan.projectDir, plan.contractPath);
+  if (contractRelative.startsWith('..') || path.isAbsolute(contractRelative)) {
+    volumeMounts.push('-v', `${plan.contractPath}:${containerContractPath}:ro`);
+  }
+
+  if (plan.orbitdbRelayPinnerDir) {
+    runEnv.ORBITDB_RELAY_PINNER_DIR = orbitdbRelayPinnerMountPath;
+    volumeMounts.push('-v', `${plan.orbitdbRelayPinnerDir}:${orbitdbRelayPinnerMountPath}:ro`);
+  }
 
   return {
     mode: 'docker',
@@ -117,22 +149,8 @@ export function createDockerRootfsExecutionPlan(
         'linux/amd64',
         '-e',
         'LIBGUESTFS_BACKEND=direct',
-        '-e',
-        `ROOTFS_CONTRACT_FILE=${containerContractPath}`,
-        '-e',
-        `OUT_DIR=${containerOutDir}`,
-        '-e',
-        `ROOTFS_IMAGE_SIZE=${plan.rootfsImageSize}`,
-        '-e',
-        `PROJECT_DIR=${containerProjectDir}`,
-        '-e',
-        `HOST_UID=${hostUid}`,
-        '-e',
-        `HOST_GID=${hostGid}`,
-        '-v',
-        `${plan.projectDir}:${projectMountPath}`,
-        '-v',
-        `${referenceRootfsDir}:${rootfsMountPath}`,
+        ...Object.entries(runEnv).flatMap(([key, value]) => ['-e', `${key}=${value}`]),
+        ...volumeMounts,
         '-w',
         rootfsMountPath,
         dockerImageTag,

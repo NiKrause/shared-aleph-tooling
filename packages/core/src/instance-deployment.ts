@@ -1,6 +1,7 @@
 import type {
   AlephBroadcastMessage,
   AlephInstanceContent,
+  DeploymentProgressListener,
   DeploymentIntentEnvelope,
   DeploymentResult,
   MessageHasher,
@@ -239,7 +240,18 @@ export async function deployInstance(args: {
   channel?: string
   sync?: boolean
   now?: number
+  onProgress?: DeploymentProgressListener
 }): Promise<DeploymentResult> {
+  args.onProgress?.({
+    stage: 'building-message',
+    label: 'Building deployment message',
+    progress: 32,
+    status: 'info',
+    detail: args.content.metadata?.name ?? null,
+    itemHash: null,
+    error: null,
+    timestamp: Date.now()
+  })
   const unsignedMessage = await createUnsignedInstanceMessage({
     sender: args.sender,
     content: args.content,
@@ -248,12 +260,32 @@ export async function deployInstance(args: {
     now: args.now
   })
 
+  args.onProgress?.({
+    stage: 'signing-message',
+    label: 'Waiting for MetaMask signature',
+    progress: 48,
+    status: 'info',
+    detail: unsignedMessage.item_hash,
+    itemHash: unsignedMessage.item_hash,
+    error: null,
+    timestamp: Date.now()
+  })
   const signature = await args.signer(unsignedMessage.sender, [unsignedMessage.chain, unsignedMessage.sender, unsignedMessage.type, unsignedMessage.item_hash].join('\n'))
   const message: AlephBroadcastMessage = {
     ...unsignedMessage,
     signature: signature.startsWith('0x') ? signature : `0x${signature}`
   }
 
+  args.onProgress?.({
+    stage: 'broadcasting',
+    label: 'Broadcasting to Aleph',
+    progress: 64,
+    status: 'info',
+    detail: message.item_hash,
+    itemHash: message.item_hash,
+    error: null,
+    timestamp: Date.now()
+  })
   const { response, httpStatus } = await broadcastAlephMessage(message, {
     apiHost: args.apiHost,
     sync: args.sync,
@@ -266,6 +298,27 @@ export async function deployInstance(args: {
       : typeof response.message_status === 'string'
         ? response.message_status
         : 'unknown'
+
+  args.onProgress?.({
+    stage:
+      status === 'processed'
+        ? 'deployment-confirmed'
+        : status === 'rejected'
+          ? 'deployment-rejected'
+          : 'waiting-for-aleph',
+    label:
+      status === 'processed'
+        ? 'Deployment accepted by Aleph'
+        : status === 'rejected'
+          ? 'Deployment rejected by Aleph'
+          : 'Deployment submitted to Aleph',
+    progress: status === 'processed' ? 88 : status === 'rejected' ? 100 : 78,
+    status: status === 'processed' ? 'success' : status === 'rejected' ? 'error' : 'warning',
+    detail: status === 'rejected' ? String(response.details ?? 'Aleph rejected this deployment.') : null,
+    itemHash: message.item_hash,
+    error: status === 'rejected' ? String(response.details ?? 'Aleph rejected this deployment.') : null,
+    timestamp: Date.now()
+  })
 
   return {
     itemHash: message.item_hash,

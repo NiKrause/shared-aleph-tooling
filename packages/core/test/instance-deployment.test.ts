@@ -236,6 +236,7 @@ test('createDeploymentIntent hashes a deterministic deployment intent from unsig
 })
 
 test('deployInstance composes hashing, signing, and broadcast into a deployment result', async () => {
+  const progressStages: string[] = []
   const result = await deployInstance({
     sender: '0xabc',
     content: createInstanceContent({
@@ -255,10 +256,19 @@ test('deployInstance composes hashing, signing, and broadcast into a deployment 
       async json() {
         return { message_status: 'processed' }
       }
-    })
+    }),
+    onProgress: (event) => {
+      progressStages.push(event.stage)
+    }
   })
 
   assert.equal(result.itemHash, 'instanceHash')
   assert.equal(result.status, 'processed')
   assert.equal(result.message?.signature, '0xsigned1234')
+  assert.deepEqual(progressStages, [
+    'building-message',
+    'signing-message',
+    'broadcasting',
+    'deployment-confirmed'
+  ])
 })

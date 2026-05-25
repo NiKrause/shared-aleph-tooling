@@ -9,29 +9,32 @@ import {
   type InstanceExecution,
   type InstanceMessage,
   type RootfsManifest,
-  type RootfsManifestState
-} from '../../../browser/src/index.ts'
+  type RootfsManifestState,
+} from "../../../browser/src/index.ts";
 import {
   buildPaymentQuote,
   createInstanceContent,
   deployInstance as deploySharedInstance,
   filterDeployableCrns,
   forgetAlephMessages,
-  tierSpec
-} from '../../../core/src/index.ts'
+  notifyCrnAllocationWithRetry,
+  tierSpec,
+} from "../../../core/src/index.ts";
 
 import {
   DEFAULT_INSTANCE_NAME,
   DEFAULT_MANIFEST_URL,
   DEFAULT_TIER_ID,
+  IDLE_DEPLOYMENT_PROGRESS,
   REFRESH_INTERVAL_MS,
   RELAY_PING_IDLE_STATE,
   RELAY_PING_INTERVAL_MS,
-  ROOTFS_MISSING_STATE
-} from './constants'
-import { buildSshCommand } from './format'
-import { resolveManifestSource } from './manifest-source'
-import { connectWallet, personalSign, watchWallet } from './wallet-controller'
+  ROOTFS_MISSING_STATE,
+} from "./constants";
+import { createDeploymentProgressEmitter } from "./events";
+import { buildSshCommand } from "./format";
+import { resolveManifestSource } from "./manifest-source";
+import { connectWallet, personalSign, watchWallet } from "./wallet-controller";
 import type {
   CompactInstanceDetails,
   CompactInstanceRecord,
@@ -39,8 +42,12 @@ import type {
   SponsorRelayProps,
   SponsorRelayRootfsHealth,
   SponsorRelayState,
-  SponsorRelaySubscriber
-} from './types'
+  SponsorRelaySubscriber,
+} from "./types";
+import type {
+  DeploymentProgressEvent,
+  DeploymentProgressListener,
+} from "../../../shared-types/src/deployment.ts";
 
 function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
   return {
@@ -50,11 +57,11 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
       connected: false,
       address: null,
       chainId: null,
-      isMetaMask: false
+      isMetaMask: false,
     },
     manifestUrl: props.manifestUrl ?? DEFAULT_MANIFEST_URL,
-    manifestJson: props.manifestJson ?? '',
-    sshPublicKey: props.sshPublicKey ?? '',
+    manifestJson: props.manifestJson ?? "",
+    sshPublicKey: props.sshPublicKey ?? "",
     instanceName: props.instanceName ?? DEFAULT_INSTANCE_NAME,
     tierId: DEFAULT_TIER_ID,
     showInstances: props.showInstances ?? true,
@@ -63,14 +70,14 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
       connectingWallet: false,
       refreshing: false,
       deploying: false,
-      deletingInstanceHash: null
+      deletingInstanceHash: null,
     },
-    statusText: 'Ready',
+    statusText: "Ready",
     errorText: null,
     manifestState: {
       manifest: null,
       valid: false,
-      errors: ['Manifest not loaded yet.']
+      errors: ["Manifest not loaded yet."],
     },
     manifest: null,
     rootfsResolution: null,
@@ -83,105 +90,123 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
       availableCredits: null,
       vcpus: null,
       memoryMiB: null,
-      diskMiB: null
+      diskMiB: null,
     },
     balance: null,
     crns: [],
     selectedCrn: null,
     instances: [],
     relayPing: RELAY_PING_IDLE_STATE,
-    lastDeploymentHash: null
-  }
+    lastDeploymentHash: null,
+    deploymentProgress: IDLE_DEPLOYMENT_PROGRESS,
+  };
 }
 
 async function sha256Hex(payload: string): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload))
-  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, '0')).join('')
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(payload),
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
-function mappedPorts(execution: InstanceExecution | null): CompactInstanceDetails['mappedPorts'] {
-  return Object.entries(execution?.networking?.mapped_ports ?? {}).map(([port, mapping]) => ({
-    label: `${port}/${mapping.udp ? 'udp' : 'tcp'}`,
-    hostPort: mapping.host ?? null
-  }))
+function mappedPorts(
+  execution: InstanceExecution | null,
+): CompactInstanceDetails["mappedPorts"] {
+  return Object.entries(execution?.networking?.mapped_ports ?? {}).map(
+    ([port, mapping]) => ({
+      label: `${port}/${mapping.udp ? "udp" : "tcp"}`,
+      hostPort: mapping.host ?? null,
+    }),
+  );
 }
 
 function rootfsHealth(args: {
-  manifestState: RootfsManifestState
-  rootfsVerified: boolean
-  resolution: SponsorRelayState['rootfsResolution']
+  manifestState: RootfsManifestState;
+  rootfsVerified: boolean;
+  resolution: SponsorRelayState["rootfsResolution"];
 }): SponsorRelayRootfsHealth {
   if (!args.manifestState.valid || !args.manifestState.manifest) {
     return {
-      tone: 'error',
-      label: 'manifest invalid',
-      detail: args.manifestState.errors[0] ?? 'Manifest could not be parsed.'
-    }
+      tone: "error",
+      label: "manifest invalid",
+      detail: args.manifestState.errors[0] ?? "Manifest could not be parsed.",
+    };
   }
 
   if (!args.rootfsVerified) {
     return {
-      tone: 'error',
-      label: 'not found on Aleph',
-      detail: 'The referenced rootfs STORE message is not available yet.'
-    }
+      tone: "error",
+      label: "not found on Aleph",
+      detail: "The referenced rootfs STORE message is not available yet.",
+    };
   }
 
   if (!args.resolution) {
     return {
-      tone: 'caution',
-      label: 'verifying rootfs',
-      detail: 'The rootfs reference is still being resolved.'
-    }
+      tone: "caution",
+      label: "verifying rootfs",
+      detail: "The rootfs reference is still being resolved.",
+    };
   }
 
-  if (args.resolution.messageStatus === 'processed') {
+  if (args.resolution.messageStatus === "processed") {
     return {
-      tone: 'ok',
-      label: 'deployable',
-      detail: args.resolution.gatewayUrl
-    }
+      tone: "ok",
+      label: "deployable",
+      detail: args.resolution.gatewayUrl,
+    };
   }
 
-  if (args.resolution.messageStatus === 'pending' && args.resolution.gatewayStatus === 'reachable') {
+  if (
+    args.resolution.messageStatus === "pending" &&
+    args.resolution.gatewayStatus === "reachable"
+  ) {
     return {
-      tone: 'caution',
-      label: 'pending but reachable',
-      detail: 'Gateway probe succeeded even though Aleph still reports pending.'
-    }
+      tone: "caution",
+      label: "pending but reachable",
+      detail:
+        "Gateway probe succeeded even though Aleph still reports pending.",
+    };
   }
 
-  if (args.resolution.messageStatus === 'pending') {
+  if (args.resolution.messageStatus === "pending") {
     return {
-      tone: 'caution',
-      label: 'pending on Aleph',
-      detail: 'Wait until the STORE message is processed.'
-    }
+      tone: "caution",
+      label: "pending on Aleph",
+      detail: "Wait until the STORE message is processed.",
+    };
   }
 
   return {
-    tone: 'error',
-    label: 'not deployable',
-    detail: args.resolution.rejectionReason ?? 'Aleph rejected the rootfs reference.'
-  }
+    tone: "error",
+    label: "not deployable",
+    detail:
+      args.resolution.rejectionReason ?? "Aleph rejected the rootfs reference.",
+  };
 }
 
 async function resolveManifest(args: {
-  manifestUrl: string
-  manifestJson: string
+  manifestUrl: string;
+  manifestJson: string;
 }): Promise<RootfsManifestState> {
-  const pasted = resolveManifestSource({ manifestJson: args.manifestJson })
-  if (pasted) return pasted
-  return loadRootfsManifest(args.manifestUrl)
+  const pasted = resolveManifestSource({ manifestJson: args.manifestJson });
+  if (pasted) return pasted;
+  return loadRootfsManifest(args.manifestUrl);
 }
 
 async function inspectInstanceRuntime(args: {
-  client: ReturnType<typeof createAlephBrowserClient>
-  instance: InstanceMessage
-  crns: Crn[]
+  client: ReturnType<typeof createAlephBrowserClient>;
+  instance: InstanceMessage;
+  crns: Crn[];
 }): Promise<CompactInstanceDetails> {
   const details: CompactInstanceDetails = {
-    messageStatus: String(args.instance.status ?? (args.instance.confirmed ? 'processed' : 'unknown')).toLowerCase(),
+    messageStatus: String(
+      args.instance.status ??
+        (args.instance.confirmed ? "processed" : "unknown"),
+    ).toLowerCase(),
     allocationSource: null,
     crnUrl: null,
     hostIpv4: null,
@@ -191,264 +216,311 @@ async function inspectInstanceRuntime(args: {
     sshCommand: null,
     mappedPorts: [],
     execution: null,
-    error: null
-  }
+    error: null,
+  };
 
-  if (details.messageStatus !== 'processed') {
-    return details
+  if (details.messageStatus !== "processed") {
+    return details;
   }
 
   try {
     const allocation =
       (await args.client.fetchSchedulerAllocation(args.instance.item_hash)) ??
       (() => {
-        const nodeHash = args.instance.content?.requirements?.node?.node_hash
-        const crn = args.crns.find((candidate) => candidate.hash === nodeHash)
+        const nodeHash = args.instance.content?.requirements?.node?.node_hash;
+        const crn = args.crns.find((candidate) => candidate.hash === nodeHash);
         return nodeHash
           ? {
-              source: 'manual' as const,
+              source: "manual" as const,
               crnHash: nodeHash,
               crnUrl: crn?.address ?? null,
               node: crn ? { url: crn.address } : null,
               vmIpv6: null,
-              period: null
+              period: null,
             }
-          : null
-      })()
+          : null;
+      })();
 
-    details.allocationSource = allocation?.source ?? null
-    details.crnUrl = allocation?.crnUrl ?? null
-    details.ipv6 = allocation?.vmIpv6 ?? null
-    details.webUrl = await args.client.fetch2n6WebAccessUrl(args.instance.item_hash)
+    details.allocationSource = allocation?.source ?? null;
+    details.crnUrl = allocation?.crnUrl ?? null;
+    details.ipv6 = allocation?.vmIpv6 ?? null;
+    details.webUrl = await args.client.fetch2n6WebAccessUrl(
+      args.instance.item_hash,
+    );
 
     if (!allocation?.crnUrl) {
-      return details
+      return details;
     }
 
-    const executionLookup = await args.client.fetchCrnExecutionMap(allocation.crnUrl)
-    const executionPayload = executionLookup.payload?.[args.instance.item_hash]
+    const executionLookup = await args.client.fetchCrnExecutionMap(
+      allocation.crnUrl,
+    );
+    const executionPayload = executionLookup.payload?.[args.instance.item_hash];
     if (!executionPayload) {
-      return details
+      return details;
     }
 
-    const execution = normalizeExecution(executionPayload, allocation.crnUrl)
+    const execution = normalizeExecution(executionPayload, allocation.crnUrl);
     if (!execution.networking.proxy_url && details.webUrl) {
-      execution.networking.proxy_url = details.webUrl
+      execution.networking.proxy_url = details.webUrl;
     }
 
-    details.execution = execution
-    details.hostIpv4 = execution.networking.host_ipv4 ?? execution.networking.ipv4 ?? null
-    details.ipv6 = execution.networking.ipv6_ip ?? execution.networking.ipv6 ?? details.ipv6
-    details.vmIpv4 = execution.networking.ipv4_ip ?? null
-    details.webUrl = execution.networking.proxy_url ?? details.webUrl
-    details.mappedPorts = mappedPorts(execution)
-    details.sshCommand = buildSshCommand(details.hostIpv4, details.mappedPorts)
-    return details
+    details.execution = execution;
+    details.hostIpv4 =
+      execution.networking.host_ipv4 ?? execution.networking.ipv4 ?? null;
+    details.ipv6 =
+      execution.networking.ipv6_ip ?? execution.networking.ipv6 ?? details.ipv6;
+    details.vmIpv4 = execution.networking.ipv4_ip ?? null;
+    details.webUrl = execution.networking.proxy_url ?? details.webUrl;
+    details.mappedPorts = mappedPorts(execution);
+    details.sshCommand = buildSshCommand(details.hostIpv4, details.mappedPorts);
+    return details;
   } catch (error) {
     return {
       ...details,
-      error: error instanceof Error ? error.message : String(error)
-    }
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
 function compatibleCrnsForTier(crns: Crn[], state: SponsorRelayState): Crn[] {
   if (!state.pricingSummary.pricing || !state.pricingSummary.tier) {
-    return []
+    return [];
   }
 
-  const spec = tierSpec(state.pricingSummary.pricing, state.pricingSummary.tier)
-  return filterDeployableCrns(crns, { spec })
+  const spec = tierSpec(
+    state.pricingSummary.pricing,
+    state.pricingSummary.tier,
+  );
+  return filterDeployableCrns(crns, { spec });
 }
 
 async function pingPeer(libp2p: unknown): Promise<RelayPingState> {
-  if (!libp2p || typeof libp2p !== 'object') {
-    return RELAY_PING_IDLE_STATE
+  if (!libp2p || typeof libp2p !== "object") {
+    return RELAY_PING_IDLE_STATE;
   }
 
   const candidate = libp2p as {
-    getPeers?: () => unknown[]
-    ping?: (peer: unknown) => Promise<number>
-    services?: { ping?: { ping: (peer: unknown) => Promise<number> } }
-  }
+    getPeers?: () => unknown[];
+    ping?: (peer: unknown) => Promise<number>;
+    services?: { ping?: { ping: (peer: unknown) => Promise<number> } };
+  };
 
-  const peers = candidate.getPeers?.() ?? []
-  const firstPeer = peers[0]
+  const peers = candidate.getPeers?.() ?? [];
+  const firstPeer = peers[0];
   if (!firstPeer) {
     return {
       ...RELAY_PING_IDLE_STATE,
-      tone: 'caution',
-      error: 'No connected relay peers available.'
-    }
+      tone: "caution",
+      error: "No connected relay peers available.",
+    };
   }
 
-  const sentAt = Date.now()
+  const sentAt = Date.now();
   try {
-    const pingFn = candidate.services?.ping?.ping?.bind(candidate.services.ping) ?? candidate.ping?.bind(candidate)
+    const pingFn =
+      candidate.services?.ping?.ping?.bind(candidate.services.ping) ??
+      candidate.ping?.bind(candidate);
     if (!pingFn) {
       return {
         ...RELAY_PING_IDLE_STATE,
-        tone: 'caution',
+        tone: "caution",
         sent: true,
         lastPeerId: String(firstPeer),
         lastSentAt: sentAt,
-        error: 'libp2p ping service not available.'
-      }
+        error: "libp2p ping service not available.",
+      };
     }
 
-    const latency = await pingFn(firstPeer)
+    const latency = await pingFn(firstPeer);
     return {
-      tone: 'ok',
+      tone: "ok",
       sent: true,
       received: true,
       lastPeerId: String(firstPeer),
       lastLatencyMs: Number(latency),
       lastSentAt: sentAt,
       lastReceivedAt: Date.now(),
-      error: null
-    }
+      error: null,
+    };
   } catch (error) {
     return {
-      tone: 'error',
+      tone: "error",
       sent: true,
       received: false,
       lastPeerId: String(firstPeer),
       lastLatencyMs: null,
       lastSentAt: sentAt,
       lastReceivedAt: null,
-      error: error instanceof Error ? error.message : String(error)
-    }
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
 type SponsorRelayStatePatch = Omit<
   Partial<SponsorRelayState>,
-  'busy' | 'wallet' | 'pricingSummary' | 'relayPing'
+  "busy" | "wallet" | "pricingSummary" | "relayPing"
 > & {
-  busy?: Partial<SponsorRelayState['busy']>
-  wallet?: Partial<SponsorRelayState['wallet']>
-  pricingSummary?: Partial<SponsorRelayState['pricingSummary']>
-  relayPing?: Partial<SponsorRelayState['relayPing']>
-}
+  busy?: Partial<SponsorRelayState["busy"]>;
+  wallet?: Partial<SponsorRelayState["wallet"]>;
+  pricingSummary?: Partial<SponsorRelayState["pricingSummary"]>;
+  relayPing?: Partial<SponsorRelayState["relayPing"]>;
+};
 
 export class SponsorRelayController {
-  private state: SponsorRelayState
-  private subscribers = new Set<SponsorRelaySubscriber>()
-  private client: ReturnType<typeof createAlephBrowserClient>
-  private refreshTimer: ReturnType<typeof setInterval> | null = null
-  private pingTimer: ReturnType<typeof setInterval> | null = null
-  private stopWalletWatch: (() => void) | null = null
-  private props: SponsorRelayProps
+  private state: SponsorRelayState;
+  private subscribers = new Set<SponsorRelaySubscriber>();
+  private client: ReturnType<typeof createAlephBrowserClient>;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private stopWalletWatch: (() => void) | null = null;
+  private props: SponsorRelayProps;
+  private progressEmitter = createDeploymentProgressEmitter();
 
   constructor(props: SponsorRelayProps = {}) {
-    this.props = props
-    this.state = defaultState(props)
+    this.props = props;
+    this.state = defaultState(props);
     this.client = createAlephBrowserClient({
       apiHost: props.apiHost,
       crnListUrl: props.crnListUrl,
       schedulerApiHost: props.schedulerApiHost,
-      twoN6ApiHost: props.twoN6ApiHost
-    })
+      twoN6ApiHost: props.twoN6ApiHost,
+    });
+  }
+
+  subscribeToDeploymentProgress(
+    listener: DeploymentProgressListener,
+  ): () => void {
+    return this.progressEmitter.subscribe(listener);
   }
 
   subscribe(subscriber: SponsorRelaySubscriber): () => void {
-    this.subscribers.add(subscriber)
+    this.subscribers.add(subscriber);
     return () => {
-      this.subscribers.delete(subscriber)
-    }
+      this.subscribers.delete(subscriber);
+    };
   }
 
   getState(): SponsorRelayState {
-    return this.state
+    return this.state;
   }
 
   private emit() {
-    const next = this.state
-    this.subscribers.forEach((subscriber) => subscriber(next))
+    const next = this.state;
+    this.subscribers.forEach((subscriber) => subscriber(next));
   }
 
   private patch(patch: SponsorRelayStatePatch) {
     this.state = {
       ...this.state,
       ...patch,
-      busy: patch.busy ? { ...this.state.busy, ...patch.busy } : this.state.busy,
-      wallet: patch.wallet ? { ...this.state.wallet, ...patch.wallet } : this.state.wallet,
+      busy: patch.busy
+        ? { ...this.state.busy, ...patch.busy }
+        : this.state.busy,
+      wallet: patch.wallet
+        ? { ...this.state.wallet, ...patch.wallet }
+        : this.state.wallet,
       pricingSummary: patch.pricingSummary
         ? { ...this.state.pricingSummary, ...patch.pricingSummary }
         : this.state.pricingSummary,
-      relayPing: patch.relayPing ? { ...this.state.relayPing, ...patch.relayPing } : this.state.relayPing
-    }
-    this.emit()
+      relayPing: patch.relayPing
+        ? { ...this.state.relayPing, ...patch.relayPing }
+        : this.state.relayPing,
+    };
+    this.emit();
+  }
+
+  private emitProgress(event: Omit<DeploymentProgressEvent, "timestamp">) {
+    const nextEvent: DeploymentProgressEvent = {
+      ...event,
+      timestamp: Date.now(),
+    };
+    this.patch({
+      deploymentProgress: nextEvent,
+      statusText: event.error ?? event.detail ?? event.label,
+      errorText:
+        event.status === "error"
+          ? (event.error ?? event.detail ?? event.label)
+          : this.state.errorText,
+    });
+    this.progressEmitter.emit(nextEvent);
   }
 
   async init(): Promise<void> {
     this.stopWalletWatch = watchWallet(() => {
-      void this.refreshWalletDerivedState()
-    })
-    await this.refresh()
+      void this.refreshWalletDerivedState();
+    });
+    await this.refresh();
     this.refreshTimer = setInterval(() => {
-      void this.refresh()
-    }, REFRESH_INTERVAL_MS)
+      void this.refresh();
+    }, REFRESH_INTERVAL_MS);
     this.pingTimer = setInterval(() => {
-      void this.refreshRelayPing()
-    }, RELAY_PING_INTERVAL_MS)
-    await this.refreshRelayPing()
-    this.patch({ ready: true })
+      void this.refreshRelayPing();
+    }, RELAY_PING_INTERVAL_MS);
+    await this.refreshRelayPing();
+    this.patch({ ready: true });
   }
 
   destroy(): void {
-    if (this.refreshTimer) clearInterval(this.refreshTimer)
-    if (this.pingTimer) clearInterval(this.pingTimer)
-    this.stopWalletWatch?.()
+    if (this.refreshTimer) clearInterval(this.refreshTimer);
+    if (this.pingTimer) clearInterval(this.pingTimer);
+    this.stopWalletWatch?.();
   }
 
   setOpen(open: boolean): void {
-    this.patch({ open })
+    this.patch({ open });
   }
 
   toggleOpen(): void {
-    this.patch({ open: !this.state.open })
+    this.patch({ open: !this.state.open });
   }
 
   setManifestUrl(manifestUrl: string): void {
-    this.patch({ manifestUrl })
+    this.patch({ manifestUrl });
   }
 
   setManifestJson(manifestJson: string): void {
-    this.patch({ manifestJson })
+    this.patch({ manifestJson });
   }
 
   setShowPasteManifest(showPasteManifest: boolean): void {
-    this.patch({ showPasteManifest })
+    this.patch({ showPasteManifest });
   }
 
   setSshPublicKey(sshPublicKey: string): void {
-    this.patch({ sshPublicKey })
+    this.patch({ sshPublicKey });
   }
 
   setInstanceName(instanceName: string): void {
-    this.patch({ instanceName })
+    this.patch({ instanceName });
   }
 
   setTierId(tierId: string): void {
-    this.patch({ tierId })
-    this.recomputePricingSummary()
+    this.patch({ tierId });
+    this.recomputePricingSummary();
   }
 
   private recomputePricingSummary() {
-    const pricing = this.state.pricingSummary.pricing
-    const tier = pricing?.tiers.find((entry) => entry.id === this.state.tierId) ?? pricing?.tiers[0] ?? null
-    const balance = this.state.balance
-    const quote = pricing && tier && balance ? buildPaymentQuote(tier, pricing, balance) : null
-    const spec = pricing && tier ? tierSpec(pricing, tier) : null
-    const selectedCrn = compatibleCrnsForTier(this.state.crns, {
-      ...this.state,
-      pricingSummary: {
-        ...this.state.pricingSummary,
-        pricing,
-        tier
-      }
-    } as SponsorRelayState)[0] ?? null
+    const pricing = this.state.pricingSummary.pricing;
+    const tier =
+      pricing?.tiers.find((entry) => entry.id === this.state.tierId) ??
+      pricing?.tiers[0] ??
+      null;
+    const balance = this.state.balance;
+    const quote =
+      pricing && tier && balance
+        ? buildPaymentQuote(tier, pricing, balance)
+        : null;
+    const spec = pricing && tier ? tierSpec(pricing, tier) : null;
+    const selectedCrn =
+      compatibleCrnsForTier(this.state.crns, {
+        ...this.state,
+        pricingSummary: {
+          ...this.state.pricingSummary,
+          pricing,
+          tier,
+        },
+      } as SponsorRelayState)[0] ?? null;
 
     this.patch({
       pricingSummary: {
@@ -458,54 +530,54 @@ export class SponsorRelayController {
         availableCredits: quote?.available ?? balance?.credit_balance ?? null,
         vcpus: spec?.vcpus ?? null,
         memoryMiB: spec?.memoryMiB ?? null,
-        diskMiB: spec?.diskMiB ?? null
+        diskMiB: spec?.diskMiB ?? null,
       },
-      selectedCrn
-    })
+      selectedCrn,
+    });
   }
 
   async connectWallet(): Promise<void> {
     this.patch({
       busy: { connectingWallet: true },
       errorText: null,
-      statusText: 'Connecting MetaMask'
-    })
+      statusText: "Connecting MetaMask",
+    });
 
     try {
-      const wallet = await connectWallet()
+      const wallet = await connectWallet();
       this.patch({
         wallet,
         busy: { connectingWallet: false },
-        statusText: 'Wallet connected'
-      })
-      await this.refresh()
+        statusText: "Wallet connected",
+      });
+      await this.refresh();
     } catch (error) {
       this.patch({
         busy: { connectingWallet: false },
         errorText: error instanceof Error ? error.message : String(error),
-        statusText: 'Wallet connection failed'
-      })
+        statusText: "Wallet connection failed",
+      });
     }
   }
 
   private async refreshWalletDerivedState(): Promise<void> {
     if (!this.state.wallet.connected) {
-      return
+      return;
     }
 
     try {
-      const wallet = await connectWallet()
-      this.patch({ wallet })
-      await this.refresh()
+      const wallet = await connectWallet();
+      this.patch({ wallet });
+      await this.refresh();
     } catch {
       this.patch({
         wallet: {
           connected: false,
           address: null,
           chainId: null,
-          isMetaMask: false
-        }
-      })
+          isMetaMask: false,
+        },
+      });
     }
   }
 
@@ -513,45 +585,81 @@ export class SponsorRelayController {
     this.patch({
       busy: { refreshing: true },
       errorText: null,
-      statusText: 'Refreshing relay sponsor data'
-    })
+      statusText: "Refreshing relay sponsor data",
+    });
 
     try {
+      this.emitProgress({
+        stage: "loading-manifest",
+        label: "Loading manifest",
+        progress: 8,
+        status: "info",
+        detail: this.state.manifestUrl,
+      });
       const manifestState = await resolveManifest({
         manifestUrl: this.state.manifestUrl,
-        manifestJson: this.state.manifestJson
-      })
-      const manifest = manifestState.manifest
+        manifestJson: this.state.manifestJson,
+      });
+      const manifest = manifestState.manifest;
+      this.emitProgress({
+        stage: "loading-pricing",
+        label: "Loading pricing and CRNs",
+        progress: 18,
+        status: "info",
+        detail: "Fetching live Aleph pricing and compatible CRNs.",
+      });
       const [pricingSummary, crns] = await Promise.all([
         fetchInstancePricing(this.client.apiHost),
-        this.client.fetchCrns()
-      ])
+        this.client.fetchCrns(),
+      ]);
 
-      let balance = this.state.balance
-      let instances: CompactInstanceRecord[] = []
+      let balance = this.state.balance;
+      let instances: CompactInstanceRecord[] = [];
       if (this.state.wallet.address) {
+        this.emitProgress({
+          stage: "loading-balance",
+          label: "Loading wallet balance",
+          progress: 28,
+          status: "info",
+          detail: this.state.wallet.address,
+        });
         const [nextBalance, rawInstances] = await Promise.all([
           this.client.fetchBalance(this.state.wallet.address),
-          this.state.showInstances ? this.client.fetchInstances(this.state.wallet.address) : Promise.resolve([])
-        ])
-        balance = nextBalance
+          this.state.showInstances
+            ? this.client.fetchInstances(this.state.wallet.address)
+            : Promise.resolve([]),
+        ]);
+        balance = nextBalance;
         instances = await Promise.all(
           rawInstances.map(async (instance) => ({
             instance,
             details: await inspectInstanceRuntime({
               client: this.client,
               instance,
-              crns
-            })
-          }))
-        )
+              crns,
+            }),
+          })),
+        );
       }
 
-      let rootfsVerified = false
-      let rootfsResolution = null
+      let rootfsVerified = false;
+      let rootfsResolution = null;
       if (manifestState.valid && manifest) {
-        rootfsVerified = await verifyRootfsExists(manifest.rootfsItemHash, this.client.apiHost)
-        rootfsResolution = await resolveRootfsReference(manifest.rootfsItemHash, this.client.apiHost)
+        this.emitProgress({
+          stage: "verifying-rootfs",
+          label: "Verifying rootfs",
+          progress: 38,
+          status: "info",
+          detail: manifest.rootfsItemHash,
+        });
+        rootfsVerified = await verifyRootfsExists(
+          manifest.rootfsItemHash,
+          this.client.apiHost,
+        );
+        rootfsResolution = await resolveRootfsReference(
+          manifest.rootfsItemHash,
+          this.client.apiHost,
+        );
       }
 
       this.patch({
@@ -562,62 +670,107 @@ export class SponsorRelayController {
         rootfsHealth: rootfsHealth({
           manifestState,
           rootfsVerified,
-          resolution: rootfsResolution
+          resolution: rootfsResolution,
         }),
         pricingSummary: {
           ...this.state.pricingSummary,
-          pricing: pricingSummary.pricing
+          pricing: pricingSummary.pricing,
         },
         balance,
         crns,
         instances,
         busy: { refreshing: false },
-        statusText: 'Relay sponsor data ready'
-      })
-      this.recomputePricingSummary()
+        statusText: "Relay sponsor data ready",
+      });
+      this.recomputePricingSummary();
+      this.emitProgress({
+        stage: "completed",
+        label: "Data ready",
+        progress: 100,
+        status: "success",
+        detail: "Manifest, pricing, and wallet state are ready.",
+      });
     } catch (error) {
       this.patch({
         busy: { refreshing: false },
         errorText: error instanceof Error ? error.message : String(error),
-        statusText: 'Refresh failed'
-      })
+        statusText: "Refresh failed",
+      });
+      this.emitProgress({
+        stage: "error",
+        label: "Refresh failed",
+        progress: 100,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   async refreshRelayPing(): Promise<void> {
-    const relayPing = await pingPeer(this.props.libp2p)
-    this.patch({ relayPing })
+    const relayPing = await pingPeer(this.props.libp2p);
+    this.patch({ relayPing });
   }
 
   async deploy(): Promise<void> {
     if (!this.state.wallet.address) {
-      this.patch({ errorText: 'Connect MetaMask before deploying.' })
-      return
+      this.patch({ errorText: "Connect MetaMask before deploying." });
+      return;
     }
-    if (!this.state.manifest || !this.state.rootfsVerified || !this.state.pricingSummary.pricing || !this.state.pricingSummary.tier) {
-      this.patch({ errorText: 'Manifest, rootfs, and pricing must be ready before deploying.' })
-      return
+    if (
+      !this.state.manifest ||
+      !this.state.rootfsVerified ||
+      !this.state.pricingSummary.pricing ||
+      !this.state.pricingSummary.tier
+    ) {
+      this.patch({
+        errorText:
+          "Manifest, rootfs, and pricing must be ready before deploying.",
+      });
+      return;
     }
 
     this.patch({
       busy: { deploying: true },
       errorText: null,
-      statusText: 'Broadcasting deployment'
-    })
+      statusText: "Broadcasting deployment",
+    });
 
     try {
-      const spec = tierSpec(this.state.pricingSummary.pricing, this.state.pricingSummary.tier)
+      this.emitProgress({
+        stage: "validating",
+        label: "Validating deployment",
+        progress: 5,
+        status: "info",
+        detail: "Checking wallet, manifest, rootfs, pricing, and SSH key.",
+      });
+      const spec = tierSpec(
+        this.state.pricingSummary.pricing,
+        this.state.pricingSummary.tier,
+      );
+      this.emitProgress({
+        stage: "selecting-crn",
+        label: "Selecting CRN",
+        progress: 18,
+        status: "info",
+        detail:
+          this.state.selectedCrn?.name ??
+          this.state.selectedCrn?.hash ??
+          "Auto-selected compatible CRN",
+      });
       const content = createInstanceContent({
         address: this.state.wallet.address,
         name: this.state.instanceName.trim(),
         sshPublicKey: this.state.sshPublicKey.trim(),
         rootfsItemHash: this.state.manifest.rootfsItemHash,
-        rootfsSizeMiB: Math.max(this.state.manifest.rootfsSizeMiB, spec.diskMiB),
+        rootfsSizeMiB: Math.max(
+          this.state.manifest.rootfsSizeMiB,
+          spec.diskMiB,
+        ),
         vcpus: spec.vcpus,
         memoryMiB: spec.memoryMiB,
         rootfsVersion: this.state.manifest.version,
-        crnHash: this.state.selectedCrn?.hash
-      })
+        crnHash: this.state.selectedCrn?.hash,
+      });
 
       const result = await deploySharedInstance({
         sender: this.state.wallet.address,
@@ -626,67 +779,142 @@ export class SponsorRelayController {
         signer: personalSign,
         fetch: (url, init) => fetch(url, init),
         apiHost: this.client.apiHost,
-        sync: false
-      })
+        sync: false,
+        onProgress: (event) => {
+          this.emitProgress(event);
+        },
+      });
 
       this.patch({
         busy: { deploying: false },
         statusText: `Deployment submitted: ${result.itemHash}`,
-        lastDeploymentHash: result.itemHash
-      })
-      await this.refresh()
+        lastDeploymentHash: result.itemHash,
+      });
+
+      if (result.status === "processed" && this.state.selectedCrn?.address) {
+        await notifyCrnAllocationWithRetry({
+          crnUrl: this.state.selectedCrn.address,
+          itemHash: result.itemHash,
+          fetch: (url, init) => fetch(url, init),
+          onProgress: (event) => {
+            this.emitProgress(event);
+          },
+        });
+      }
+
+      this.emitProgress({
+        stage: "refreshing-instances",
+        label: "Refreshing instances",
+        progress: 92,
+        status: "info",
+        itemHash: result.itemHash,
+        detail: "Reloading deployments and runtime state.",
+      });
+      await this.refresh();
+      this.emitProgress({
+        stage: "completed",
+        label: "Deployment completed",
+        progress: 100,
+        status: result.status === "rejected" ? "error" : "success",
+        itemHash: result.itemHash,
+        detail:
+          result.status === "rejected"
+            ? (result.rejectionReason ?? "Aleph rejected the deployment.")
+            : "Deployment submitted and synced back into the panel.",
+        error:
+          result.status === "rejected"
+            ? (result.rejectionReason ?? "Aleph rejected the deployment.")
+            : null,
+      });
     } catch (error) {
       this.patch({
         busy: { deploying: false },
         errorText: error instanceof Error ? error.message : String(error),
-        statusText: 'Deployment failed'
-      })
+        statusText: "Deployment failed",
+      });
+      this.emitProgress({
+        stage: "error",
+        label: "Deployment failed",
+        progress: 100,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   async deleteInstance(instanceHash: string): Promise<void> {
     if (!this.state.wallet.address) {
-      this.patch({ errorText: 'Connect MetaMask before deleting instances.' })
-      return
+      this.patch({ errorText: "Connect MetaMask before deleting instances." });
+      return;
     }
 
     this.patch({
       busy: { deletingInstanceHash: instanceHash },
       errorText: null,
-      statusText: `Deleting ${instanceHash}`
-    })
+      statusText: `Deleting ${instanceHash}`,
+    });
 
     try {
+      this.emitProgress({
+        stage: "validating",
+        label: "Validating delete request",
+        progress: 6,
+        status: "warning",
+        itemHash: instanceHash,
+        detail: "Preparing Aleph FORGET message.",
+      });
       await forgetAlephMessages({
         sender: this.state.wallet.address,
         hashes: [instanceHash],
-        reason: 'Deleted from Sponsor Relay panel',
+        reason: "Deleted from Sponsor Relay panel",
         signer: personalSign,
         hasher: sha256Hex,
         fetch: (url, init) =>
           fetch(url, init).then(async (response) => ({
             ok: response.ok,
             status: response.status,
-            json: async () => await response.json()
+            json: async () => await response.json(),
           })),
-        apiHost: this.client.apiHost
-      })
+        apiHost: this.client.apiHost,
+        onProgress: (event) => {
+          this.emitProgress(event);
+        },
+      });
 
       this.patch({
         busy: { deletingInstanceHash: null },
-        statusText: `Deletion submitted for ${instanceHash}`
-      })
-      await this.refresh()
+        statusText: `Deletion submitted for ${instanceHash}`,
+      });
+      this.emitProgress({
+        stage: "refreshing-instances",
+        label: "Refreshing instances after delete",
+        progress: 92,
+        status: "info",
+        itemHash: instanceHash,
+        detail: "Reloading current deployments.",
+      });
+      await this.refresh();
+      this.emitProgress({
+        stage: "completed",
+        label: "Delete completed",
+        progress: 100,
+        status: "success",
+        itemHash: instanceHash,
+        detail: "Delete request submitted and deployments refreshed.",
+        error: null,
+      });
     } catch (error) {
       this.patch({
         busy: { deletingInstanceHash: null },
         errorText: error instanceof Error ? error.message : String(error),
-        statusText: 'Delete failed'
-      })
+        statusText: "Delete failed",
+      });
     }
   }
 }
 
-export function createSponsorRelayController(props: SponsorRelayProps = {}): SponsorRelayController {
-  return new SponsorRelayController(props)
+export function createSponsorRelayController(
+  props: SponsorRelayProps = {},
+): SponsorRelayController {
+  return new SponsorRelayController(props);
 }
