@@ -1,4 +1,4 @@
-import { keccak_256 } from "@noble/hashes/sha3";
+import { getAddress } from "viem";
 
 import type { SponsorRelayWalletState } from "./types";
 
@@ -20,24 +20,11 @@ export function getEthereumProvider(): EthereumProviderLike | null {
 }
 
 export function toChecksumAddress(address: string): string {
-  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+  try {
+    return getAddress(address);
+  } catch {
     throw new Error("Invalid EVM address.");
   }
-
-  const normalized = address.slice(2).toLowerCase();
-  const hash = Array.from(keccak_256(new TextEncoder().encode(normalized)))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  let result = "0x";
-
-  for (let index = 0; index < normalized.length; index += 1) {
-    result +=
-      Number.parseInt(hash[index], 16) >= 8
-        ? normalized[index].toUpperCase()
-        : normalized[index];
-  }
-
-  return result;
 }
 
 export async function connectWallet(

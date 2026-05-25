@@ -187,11 +187,14 @@ async function uploadRootfsImageToIpfsWithFetch(
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch(buildPlan.ipfsAddUrl, {
-      method: 'POST',
-      body: formData,
-      dispatcher,
-    })
+    const response = await fetch(
+      buildPlan.ipfsAddUrl,
+      {
+        method: 'POST',
+        body: formData,
+        dispatcher,
+      } as RequestInit & { dispatcher: Agent },
+    )
     if (!response.ok) {
       throw new Error(`IPFS upload failed with ${response.status} ${response.statusText}`)
     }

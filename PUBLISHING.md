@@ -12,6 +12,7 @@ The currently maintained publishable packages are:
 - `@le-space/core`
 - `@le-space/node`
 - `@le-space/rootfs`
+- `@le-space/ui`
 
 Not currently published:
 
@@ -52,6 +53,7 @@ That means a normal release updates:
 - `packages/core/package.json`
 - `packages/node/package.json`
 - `packages/rootfs/package.json`
+- `packages/ui/package.json`
 
 to the same version.
 
