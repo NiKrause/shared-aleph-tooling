@@ -25,6 +25,7 @@ import {
   DEFAULT_INSTANCE_NAME,
   DEFAULT_MANIFEST_URL,
   DEFAULT_TIER_ID,
+  DEPLOYMENT_PENDING_WARNING_MS,
   IDLE_DEPLOYMENT_PROGRESS,
   RECENT_INSTANCE_RUNTIME_GRACE_MS,
   REFRESH_INTERVAL_MS,
@@ -286,15 +287,15 @@ async function inspectInstanceRuntime(args: {
 }
 
 function instanceTimestampMs(instance: InstanceMessage): number | null {
-  const value = instance.reception_time ?? instance.time
-  if (!value) return null
+  const value = instance.reception_time ?? instance.time;
+  if (!value) return null;
 
   if (typeof value === "number") {
-    return value > 0 && value < 10_000_000_000 ? value * 1000 : value
+    return value > 0 && value < 10_000_000_000 ? value * 1000 : value;
   }
 
-  const parsed = Date.parse(value)
-  return Number.isNaN(parsed) ? null : parsed
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function compatibleCrnsForTier(crns: Crn[], state: SponsorRelayState): Crn[] {
@@ -381,6 +382,16 @@ type SponsorRelayStatePatch = Omit<
   relayPing?: Partial<SponsorRelayState["relayPing"]>;
 };
 
+function hasUsableRuntime(details: CompactInstanceDetails): boolean {
+  return (
+    Boolean(details.hostIpv4) ||
+    Boolean(details.vmIpv4) ||
+    details.mappedPorts.length > 0 ||
+    Boolean(details.webUrl) ||
+    Boolean(details.execution)
+  );
+}
+
 export class SponsorRelayController {
   private state: SponsorRelayState;
   private subscribers = new Set<SponsorRelaySubscriber>();
@@ -461,17 +472,91 @@ export class SponsorRelayController {
     this.progressEmitter.emit(nextEvent);
   }
 
+  private syncLatestDeploymentProgress(
+    instances: CompactInstanceRecord[],
+  ): void {
+    const itemHash = this.state.lastDeploymentHash;
+    if (!itemHash) {
+      return;
+    }
+
+    const latest = instances.find(
+      (entry) => entry.instance.item_hash === itemHash,
+    );
+    if (!latest) {
+      return;
+    }
+
+    const status = latest.details.messageStatus;
+
+    if (status === "rejected") {
+      this.emitProgress({
+        stage: "deployment-rejected",
+        label: "Deployment rejected",
+        progress: 100,
+        status: "error",
+        itemHash,
+        detail: "Aleph rejected the deployment.",
+        error: "Aleph rejected the deployment.",
+      });
+      return;
+    }
+
+    if (status !== "processed") {
+      const submittedAtMs = instanceTimestampMs(latest.instance);
+      const pendingTooLong =
+        submittedAtMs != null &&
+        Date.now() - submittedAtMs >= DEPLOYMENT_PENDING_WARNING_MS;
+
+      this.emitProgress({
+        stage: "waiting-for-aleph",
+        label: pendingTooLong
+          ? "Aleph processing delayed"
+          : "Waiting for Aleph",
+        progress: 76,
+        status: pendingTooLong ? "warning" : "info",
+        itemHash,
+        detail: pendingTooLong
+          ? "The instance is still pending on Aleph after several minutes. Retry, inspect the Aleph message, or delete and redeploy."
+          : "Deployment submitted. Waiting for Aleph to process the instance message.",
+      });
+      return;
+    }
+
+    if (!hasUsableRuntime(latest.details)) {
+      this.emitProgress({
+        stage: "deployment-confirmed",
+        label: "Waiting for runtime",
+        progress: 88,
+        status: "warning",
+        itemHash,
+        detail:
+          "Aleph processed the deployment. Waiting for scheduler/runtime allocation details.",
+      });
+      return;
+    }
+
+    this.emitProgress({
+      stage: "completed",
+      label: "Runtime ready",
+      progress: 100,
+      status: "success",
+      itemHash,
+      detail: "Deployment processed and runtime networking is available.",
+    });
+  }
+
   private canSkipRuntimeRefresh(instance: InstanceMessage): boolean {
     if (instance.item_hash === this.state.lastDeploymentHash) {
-      return false
+      return false;
     }
 
-    const cooldownUntil = this.runtimeCooldownByHash.get(instance.item_hash)
+    const cooldownUntil = this.runtimeCooldownByHash.get(instance.item_hash);
     if (!cooldownUntil) {
-      return false
+      return false;
     }
 
-    return cooldownUntil > Date.now()
+    return cooldownUntil > Date.now();
   }
 
   private noteRuntimeRefreshResult(
@@ -484,26 +569,31 @@ export class SponsorRelayController {
       Boolean(details.vmIpv4) ||
       details.mappedPorts.length > 0 ||
       Boolean(details.webUrl) ||
-      Boolean(details.execution)
+      Boolean(details.execution);
 
-    if (hasRuntimeData || details.error || details.messageStatus !== "processed") {
-      this.runtimeCooldownByHash.delete(instance.item_hash)
-      return
+    if (
+      hasRuntimeData ||
+      details.error ||
+      details.messageStatus !== "processed"
+    ) {
+      this.runtimeCooldownByHash.delete(instance.item_hash);
+      return;
     }
 
-    const timestampMs = instanceTimestampMs(instance)
+    const timestampMs = instanceTimestampMs(instance);
     const isRecent =
-      timestampMs != null && Date.now() - timestampMs < RECENT_INSTANCE_RUNTIME_GRACE_MS
+      timestampMs != null &&
+      Date.now() - timestampMs < RECENT_INSTANCE_RUNTIME_GRACE_MS;
 
     if (isRecent) {
-      this.runtimeCooldownByHash.delete(instance.item_hash)
-      return
+      this.runtimeCooldownByHash.delete(instance.item_hash);
+      return;
     }
 
     this.runtimeCooldownByHash.set(
       instance.item_hash,
       Date.now() + STALE_INSTANCE_ALLOCATION_COOLDOWN_MS,
-    )
+    );
   }
 
   async init(): Promise<void> {
@@ -692,14 +782,14 @@ export class SponsorRelayController {
                   client: this.client,
                   instance,
                   crns,
-                })
+                });
 
-            this.noteRuntimeRefreshResult(instance, details)
+            this.noteRuntimeRefreshResult(instance, details);
 
             return {
               instance,
               details,
-            }
+            };
           }),
         );
       }
@@ -738,6 +828,7 @@ export class SponsorRelayController {
         statusText: "Relay sponsor data ready",
       });
       this.recomputePricingSummary();
+      this.syncLatestDeploymentProgress(instances);
     } catch (error) {
       this.patch({
         busy: { refreshing: false },
@@ -852,21 +943,6 @@ export class SponsorRelayController {
         detail: "Reloading deployments and runtime state.",
       });
       await this.refresh();
-      this.emitProgress({
-        stage: "completed",
-        label: "Deployment completed",
-        progress: 100,
-        status: result.status === "rejected" ? "error" : "success",
-        itemHash: result.itemHash,
-        detail:
-          result.status === "rejected"
-            ? (result.rejectionReason ?? "Aleph rejected the deployment.")
-            : "Deployment submitted and synced back into the panel.",
-        error:
-          result.status === "rejected"
-            ? (result.rejectionReason ?? "Aleph rejected the deployment.")
-            : null,
-      });
     } catch (error) {
       this.patch({
         busy: { deploying: false },
