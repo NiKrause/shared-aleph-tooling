@@ -10,7 +10,6 @@ export function useSponsorRelayController(props: SponsorRelayProps) {
       props.crnListUrl,
       props.debug,
       props.instanceName,
-      props.libp2p,
       props.manifestJson,
       props.manifestUrl,
       props.openByDefault,
@@ -20,6 +19,13 @@ export function useSponsorRelayController(props: SponsorRelayProps) {
       props.twoN6ApiHost
     ]
   )
+
+  useEffect(() => {
+    controller.updateProps({
+      libp2p: props.libp2p,
+      debug: props.debug
+    })
+  }, [controller, props.debug, props.libp2p])
 
   useEffect(() => {
     void controller.init()

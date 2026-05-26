@@ -142,6 +142,18 @@ function mappedPorts(
   );
 }
 
+function runtimeMappedPorts(
+  mappedPortsRecord: Record<
+    string,
+    { host?: number | null; tcp?: boolean | null; udp?: boolean | null }
+  > | null | undefined,
+): CompactInstanceDetails["mappedPorts"] {
+  return Object.entries(mappedPortsRecord ?? {}).map(([port, mapping]) => ({
+    label: `${port}/${mapping.udp ? "udp" : "tcp"}`,
+    hostPort: mapping.host ?? null,
+  }));
+}
+
 function rootfsHealth(args: {
   manifestState: RootfsManifestState;
   rootfsVerified: boolean;
@@ -220,7 +232,19 @@ async function inspectInstanceRuntime(args: {
   client: ReturnType<typeof createAlephBrowserClient>;
   instance: InstanceMessage;
   crns: Crn[];
-}): Promise<CompactInstanceDetails> {
+}): Promise<{
+  details: CompactInstanceDetails;
+  lookup: {
+    allocationFound: boolean;
+    allocationSource: string | null;
+    crnUrl: string | null;
+    webUrl: string | null;
+    executionPayloadFound: boolean;
+    executionLookupBlocked: boolean;
+    executionLookupRequestUrl: string | null;
+    executionLookupVersion: string | null;
+  };
+}> {
   const details: CompactInstanceDetails = {
     messageStatus: String(
       args.instance.status ??
@@ -237,9 +261,22 @@ async function inspectInstanceRuntime(args: {
     execution: null,
     error: null,
   };
+  const lookup = {
+    allocationFound: false,
+    allocationSource: null as string | null,
+    crnUrl: null as string | null,
+    webUrl: null as string | null,
+    executionPayloadFound: false,
+    executionLookupBlocked: false,
+    executionLookupRequestUrl: null as string | null,
+    executionLookupVersion: null as string | null,
+  };
 
-  if (details.messageStatus !== "processed") {
-    return details;
+  if (
+    details.messageStatus === "rejected" ||
+    details.messageStatus === "removing"
+  ) {
+    return { details, lookup };
   }
 
   try {
@@ -260,23 +297,31 @@ async function inspectInstanceRuntime(args: {
           : null;
       })();
 
+    lookup.allocationFound = Boolean(allocation);
+    lookup.allocationSource = allocation?.source ?? null;
     details.allocationSource = allocation?.source ?? null;
     details.crnUrl = allocation?.crnUrl ?? null;
     details.ipv6 = allocation?.vmIpv6 ?? null;
     details.webUrl = await args.client.fetch2n6WebAccessUrl(
       args.instance.item_hash,
     );
+    lookup.crnUrl = details.crnUrl;
+    lookup.webUrl = details.webUrl;
 
     if (!allocation?.crnUrl) {
-      return details;
+      return { details, lookup };
     }
 
     const executionLookup = await args.client.fetchCrnExecutionMap(
       allocation.crnUrl,
     );
+    lookup.executionLookupBlocked = executionLookup.blocked;
+    lookup.executionLookupRequestUrl = executionLookup.requestUrl ?? null;
+    lookup.executionLookupVersion = executionLookup.version ?? null;
     const executionPayload = executionLookup.payload?.[args.instance.item_hash];
+    lookup.executionPayloadFound = Boolean(executionPayload);
     if (!executionPayload) {
-      return details;
+      return { details, lookup };
     }
 
     const execution = normalizeExecution(executionPayload, allocation.crnUrl);
@@ -284,6 +329,7 @@ async function inspectInstanceRuntime(args: {
       execution.networking.proxy_url = details.webUrl;
     }
 
+    details.messageStatus = "processed";
     details.execution = execution;
     details.hostIpv4 =
       execution.networking.host_ipv4 ?? execution.networking.ipv4 ?? null;
@@ -293,11 +339,14 @@ async function inspectInstanceRuntime(args: {
     details.webUrl = execution.networking.proxy_url ?? details.webUrl;
     details.mappedPorts = mappedPorts(execution);
     details.sshCommand = buildSshCommand(details.hostIpv4, details.mappedPorts);
-    return details;
+    return { details, lookup };
   } catch (error) {
     return {
-      ...details,
-      error: error instanceof Error ? error.message : String(error),
+      details: {
+        ...details,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      lookup,
     };
   }
 }
@@ -449,7 +498,9 @@ export class SponsorRelayController {
   private props: SponsorRelayProps;
   private progressEmitter = createDeploymentProgressEmitter();
   private runtimeCooldownByHash = new Map<string, number>();
+  private runtimeDetailsByHash = new Map<string, CompactInstanceDetails>();
   private debugEnabled: boolean;
+  private lastRuntimeReadyHash: string | null = null;
 
   constructor(props: SponsorRelayProps = {}) {
     this.props = props;
@@ -478,6 +529,11 @@ export class SponsorRelayController {
 
   getState(): SponsorRelayState {
     return this.state;
+  }
+
+  updateProps(props: Partial<SponsorRelayProps>): void {
+    this.props = { ...this.props, ...props };
+    this.debugEnabled = isDebugEnabled(this.props);
   }
 
   private emit() {
@@ -565,9 +621,10 @@ export class SponsorRelayController {
         currentProgress.stage !== "error");
 
     const keepTerminalSuccess =
-      currentProgressIsForLatestHash &&
-      currentProgress.stage === "completed" &&
-      currentProgress.status === "success";
+      this.lastRuntimeReadyHash === itemHash ||
+      (currentProgressIsForLatestHash &&
+        currentProgress.stage === "completed" &&
+        currentProgress.status === "success");
 
     const status = latest.details.messageStatus;
 
@@ -693,6 +750,47 @@ export class SponsorRelayController {
       instance.item_hash,
       Date.now() + STALE_INSTANCE_ALLOCATION_COOLDOWN_MS,
     );
+  }
+
+  private rememberRuntimeDetails(
+    itemHash: string,
+    details: CompactInstanceDetails,
+  ): void {
+    if (!hasUsableRuntime(details)) {
+      return;
+    }
+
+    this.runtimeDetailsByHash.set(itemHash, {
+      ...details,
+      mappedPorts: [...details.mappedPorts],
+    });
+  }
+
+  private mergeRememberedRuntimeDetails(
+    itemHash: string,
+    details: CompactInstanceDetails,
+  ): CompactInstanceDetails {
+    const remembered = this.runtimeDetailsByHash.get(itemHash);
+    if (!remembered) {
+      return details;
+    }
+
+    if (details.messageStatus === "processed" && hasUsableRuntime(details)) {
+      return details;
+    }
+
+    this.trace("runtime:retain-known-details", {
+      itemHash,
+      currentStatus: details.messageStatus,
+      rememberedStatus: remembered.messageStatus,
+      currentHasRuntime: hasUsableRuntime(details),
+    });
+
+    return {
+      ...details,
+      ...remembered,
+      error: details.error ?? remembered.error,
+    };
   }
 
   async init(): Promise<void> {
@@ -871,8 +969,9 @@ export class SponsorRelayController {
         balance = nextBalance;
         instances = await Promise.all(
           rawInstances.map(async (instance) => {
-            const details = this.canSkipRuntimeRefresh(instance)
+            const inspected = this.canSkipRuntimeRefresh(instance)
               ? {
+                  details: {
                   messageStatus: String(
                     instance.status ??
                       (instance.confirmed ? "processed" : "pending"),
@@ -887,18 +986,49 @@ export class SponsorRelayController {
                   mappedPorts: [],
                   execution: null,
                   error: null,
+                  },
+                  lookup: {
+                    allocationFound: false,
+                    allocationSource: null,
+                    crnUrl: null,
+                    webUrl: null,
+                    executionPayloadFound: false,
+                    executionLookupBlocked: false,
+                    executionLookupRequestUrl: null,
+                    executionLookupVersion: null,
+                  },
                 }
               : await inspectInstanceRuntime({
                   client: this.client,
                   instance,
                   crns,
                 });
+            const details = inspected.details;
 
-            this.noteRuntimeRefreshResult(instance, details);
+            const mergedDetails = this.mergeRememberedRuntimeDetails(
+              instance.item_hash,
+              details,
+            );
+            if (
+              this.debugEnabled &&
+              instance.item_hash === this.state.lastDeploymentHash
+            ) {
+              this.trace("runtime:inspect-result", {
+                itemHash: instance.item_hash,
+                messageStatus: details.messageStatus,
+                hostIpv4: details.hostIpv4,
+                vmIpv4: details.vmIpv4,
+                mappedPorts: details.mappedPorts,
+                error: details.error,
+                lookup: inspected.lookup,
+              });
+            }
+            this.rememberRuntimeDetails(instance.item_hash, mergedDetails);
+            this.noteRuntimeRefreshResult(instance, mergedDetails);
 
             return {
               instance,
-              details,
+              details: mergedDetails,
             };
           }),
         );
@@ -1047,6 +1177,7 @@ export class SponsorRelayController {
         lastDeploymentHash: result.itemHash,
       });
       this.trace("deploy:broadcasted", result);
+      this.lastRuntimeReadyHash = null;
 
       const inspection = await waitForDeploymentResult(result.itemHash, {
         rootfsRef: this.state.manifest.rootfsItemHash,
@@ -1204,6 +1335,30 @@ export class SponsorRelayController {
         );
       }
       this.trace("deploy:runtime-ready", runtime);
+      this.lastRuntimeReadyHash = result.itemHash;
+      this.rememberRuntimeDetails(result.itemHash, {
+        messageStatus: "processed",
+        allocationSource: runtime.allocation?.source ?? null,
+        crnUrl:
+          runtime.allocation?.crnUrl ??
+          runtime.execution?.crnUrl ??
+          null,
+        hostIpv4: runtime.hostIpv4 ?? null,
+        ipv6: runtime.ipv6 ?? null,
+        vmIpv4: runtime.execution?.networking?.ipv4_ip ?? null,
+        webUrl:
+          runtime.webAccessUrl ??
+          runtime.proxyUrl ??
+          runtime.execution?.networking?.proxy_url ??
+          null,
+        sshCommand: runtime.sshCommand ?? null,
+        mappedPorts:
+          runtime.execution != null
+            ? mappedPorts(runtime.execution)
+            : runtimeMappedPorts(runtime.mappedPorts),
+        execution: runtime.execution ?? null,
+        error: null,
+      });
 
       this.patch({
         busy: { deploying: false },

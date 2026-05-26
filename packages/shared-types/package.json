@@ -1,6 +1,6 @@
 {
   "name": "@le-space/shared-types",
-  "version": "0.1.57",
+  "version": "0.2.0",
   "description": "Shared type contracts for the shared Aleph tooling monorepo.",
   "license": "MIT",
   "private": true,
