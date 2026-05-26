@@ -109,6 +109,18 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
   };
 }
 
+function isDebugEnabled(props: SponsorRelayProps): boolean {
+  if (props.debug) {
+    return true;
+  }
+
+  try {
+    return globalThis.localStorage?.getItem("LE_SPACE_UI_DEBUG") === "1";
+  } catch {
+    return false;
+  }
+}
+
 async function sha256Hex(payload: string): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest(
     "SHA-256",
@@ -437,10 +449,12 @@ export class SponsorRelayController {
   private props: SponsorRelayProps;
   private progressEmitter = createDeploymentProgressEmitter();
   private runtimeCooldownByHash = new Map<string, number>();
+  private debugEnabled: boolean;
 
   constructor(props: SponsorRelayProps = {}) {
     this.props = props;
     this.state = defaultState(props);
+    this.debugEnabled = isDebugEnabled(props);
     this.client = createAlephBrowserClient({
       apiHost: props.apiHost,
       crnListUrl: props.crnListUrl,
@@ -471,6 +485,19 @@ export class SponsorRelayController {
     this.subscribers.forEach((subscriber) => subscriber(next));
   }
 
+  private trace(message: string, data?: unknown) {
+    if (!this.debugEnabled) {
+      return;
+    }
+
+    if (data === undefined) {
+      console.debug("[le-space/ui]", message);
+      return;
+    }
+
+    console.debug("[le-space/ui]", message, data);
+  }
+
   private patch(patch: SponsorRelayStatePatch) {
     this.state = {
       ...this.state,
@@ -496,6 +523,14 @@ export class SponsorRelayController {
       ...event,
       timestamp: Date.now(),
     };
+    this.trace(`progress:${nextEvent.stage}`, {
+      label: nextEvent.label,
+      progress: nextEvent.progress,
+      status: nextEvent.status,
+      itemHash: nextEvent.itemHash ?? null,
+      detail: nextEvent.detail ?? null,
+      error: nextEvent.error ?? null,
+    });
     this.patch({
       deploymentProgress: nextEvent,
       statusText: event.error ?? event.detail ?? event.label,
@@ -522,6 +557,18 @@ export class SponsorRelayController {
       return;
     }
 
+    const currentProgress = this.state.deploymentProgress;
+    const currentProgressIsForLatestHash =
+      currentProgress.itemHash === itemHash ||
+      (currentProgress.itemHash == null &&
+        currentProgress.stage !== "idle" &&
+        currentProgress.stage !== "error");
+
+    const keepTerminalSuccess =
+      currentProgressIsForLatestHash &&
+      currentProgress.stage === "completed" &&
+      currentProgress.status === "success";
+
     const status = latest.details.messageStatus;
 
     if (status === "rejected") {
@@ -538,6 +585,15 @@ export class SponsorRelayController {
     }
 
     if (status !== "processed") {
+      if (keepTerminalSuccess) {
+        this.trace("progress:retain-completed", {
+          reason: "latest refresh still reports non-processed status",
+          itemHash,
+          status,
+        });
+        return;
+      }
+
       const submittedAtMs = instanceTimestampMs(latest.instance);
       const pendingTooLong =
         submittedAtMs != null &&
@@ -559,6 +615,14 @@ export class SponsorRelayController {
     }
 
     if (!hasUsableRuntime(latest.details)) {
+      if (keepTerminalSuccess) {
+        this.trace("progress:retain-completed", {
+          reason: "latest refresh lacks runtime details after completed state",
+          itemHash,
+        });
+        return;
+      }
+
       this.emitProgress({
         stage: "deployment-confirmed",
         label: "Waiting for runtime",
@@ -632,7 +696,12 @@ export class SponsorRelayController {
   }
 
   async init(): Promise<void> {
+    this.trace("init:start", {
+      launcherMode: this.props.launcherMode ?? "floating",
+      manifestUrl: this.state.manifestUrl,
+    });
     this.stopWalletWatch = watchWallet(() => {
+      this.trace("wallet:changed");
       void this.refreshWalletDerivedState();
     });
     await this.refresh();
@@ -644,6 +713,7 @@ export class SponsorRelayController {
     }, RELAY_PING_INTERVAL_MS);
     await this.refreshRelayPing();
     this.patch({ ready: true });
+    this.trace("init:ready");
   }
 
   destroy(): void {
@@ -767,6 +837,11 @@ export class SponsorRelayController {
   }
 
   async refresh(): Promise<void> {
+    this.trace("refresh:start", {
+      wallet: this.state.wallet.address,
+      manifestUrl: this.state.manifestUrl,
+      showInstances: this.state.showInstances,
+    });
     this.patch({
       busy: { refreshing: true },
       errorText: null,
@@ -862,9 +937,15 @@ export class SponsorRelayController {
         busy: { refreshing: false },
         statusText: "Relay sponsor data ready",
       });
+      this.trace("refresh:success", {
+        manifestValid: manifestState.valid,
+        rootfsVerified,
+        instances: instances.length,
+      });
       this.recomputePricingSummary();
       this.syncLatestDeploymentProgress(instances);
     } catch (error) {
+      this.trace("refresh:error", error);
       this.patch({
         busy: { refreshing: false },
         errorText: error instanceof Error ? error.message : String(error),
@@ -876,9 +957,18 @@ export class SponsorRelayController {
   async refreshRelayPing(): Promise<void> {
     const relayPing = await pingPeer(this.props.libp2p);
     this.patch({ relayPing });
+    this.trace("libp2p:relay-ping", relayPing);
   }
 
   async deploy(): Promise<void> {
+    this.trace("deploy:start", {
+      wallet: this.state.wallet.address,
+      instanceName: this.state.instanceName,
+      tierId: this.state.tierId,
+      selectedCrn: this.state.selectedCrn?.name ?? null,
+      manifestRootfsItemHash: this.state.manifest?.rootfsItemHash ?? null,
+      requiredPortForwards: this.state.manifest?.requiredPortForwards ?? [],
+    });
     if (!this.state.wallet.address) {
       this.patch({ errorText: "Connect MetaMask before deploying." });
       return;
@@ -956,6 +1046,7 @@ export class SponsorRelayController {
         statusText: `Deployment submitted: ${result.itemHash}`,
         lastDeploymentHash: result.itemHash,
       });
+      this.trace("deploy:broadcasted", result);
 
       const inspection = await waitForDeploymentResult(result.itemHash, {
         rootfsRef: this.state.manifest.rootfsItemHash,
@@ -1011,6 +1102,7 @@ export class SponsorRelayController {
             `Deployment ${result.itemHash} stayed ${inspection.status} on Aleph.`,
         );
       }
+      this.trace("deploy:aleph-processed", inspection);
 
       if ((this.state.manifest.requiredPortForwards?.length ?? 0) > 0) {
         this.emitProgress({
@@ -1032,9 +1124,19 @@ export class SponsorRelayController {
           apiHost: this.client.apiHost,
           sync: true,
         });
+        this.trace("deploy:port-forwards-published", {
+          itemHash: result.itemHash,
+          requiredPortForwards: this.state.manifest.requiredPortForwards,
+        });
       }
 
       if (this.state.selectedCrn?.address) {
+        this.trace("deploy:notifying-crn", {
+          itemHash: result.itemHash,
+          crnName: this.state.selectedCrn.name,
+          crnHash: this.state.selectedCrn.hash,
+          crnUrl: this.state.selectedCrn.address,
+        });
         await notifyCrnAllocationWithRetry({
           crnUrl: this.state.selectedCrn.address,
           itemHash: result.itemHash,
@@ -1101,6 +1203,7 @@ export class SponsorRelayController {
             "Deployment was processed, but runtime networking never exposed mapped ports.",
         );
       }
+      this.trace("deploy:runtime-ready", runtime);
 
       this.patch({
         busy: { deploying: false },
@@ -1116,6 +1219,7 @@ export class SponsorRelayController {
       });
       await this.refresh();
     } catch (error) {
+      this.trace("deploy:error", error);
       this.patch({
         busy: { deploying: false },
         errorText: error instanceof Error ? error.message : String(error),
@@ -1132,6 +1236,7 @@ export class SponsorRelayController {
   }
 
   async deleteInstance(instanceHash: string): Promise<void> {
+    this.trace("delete:start", { instanceHash });
     if (!this.state.wallet.address) {
       this.patch({ errorText: "Connect MetaMask before deleting instances." });
       return;
@@ -1183,6 +1288,7 @@ export class SponsorRelayController {
         detail: "Reloading current deployments.",
       });
       await this.refresh();
+      this.trace("delete:submitted", { instanceHash });
       this.emitProgress({
         stage: "completed",
         label: "Delete completed",
@@ -1193,6 +1299,7 @@ export class SponsorRelayController {
         error: null,
       });
     } catch (error) {
+      this.trace("delete:error", error);
       this.patch({
         busy: { deletingInstanceHash: null },
         errorText: error instanceof Error ? error.message : String(error),

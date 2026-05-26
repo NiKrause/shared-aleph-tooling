@@ -15,6 +15,7 @@ export type SponsorRelayHealthTone = 'ok' | 'caution' | 'error' | 'idle'
 
 export interface SponsorRelayProps {
   libp2p?: unknown
+  debug?: boolean
   manifestUrl?: string
   manifestJson?: string
   sshPublicKey?: string
