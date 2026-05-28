@@ -246,6 +246,103 @@ test('executeDeployPlan retries on a rejected first CRN and succeeds on the next
   assert.equal(messageCount, 2)
 })
 
+test('executeDeployPlan retries on the next CRN when a processed deployment never exposes runtime networking', async () => {
+  const postedBodies: string[] = []
+
+  const result = await executeDeployPlan(
+    {
+      ...DEPLOY_PLAN,
+      crnHash: '',
+      publishPortForwards: false,
+      autoConfigure: false,
+      verifyReachability: false
+    },
+    {
+      sender: '0x1234',
+      signer: async () => '0xsigned',
+      hasher: (() => {
+        let count = 0
+        return () => `hash-p${++count}`
+      })(),
+      sleep: async () => undefined,
+      tcpProbe: async () => ({ ok: true }),
+      fetch: async (url, init) => {
+        if (String(url).includes('crns-list.aleph.sh')) {
+          return jsonResponse({
+            crns: [
+              { hash: 'crn-a', name: 'CRN A', address: 'https://crn-a.example.com', score: 10, country_code: 'DE' },
+              { hash: 'crn-b', name: 'CRN B', address: 'https://crn-b.example.com', score: 9, country_code: 'DE' }
+            ]
+          })
+        }
+
+        if (String(url).includes('/api/v0/messages') && init?.method === 'POST') {
+          postedBodies.push(String(init.body ?? ''))
+          return jsonResponse({ message_status: 'pending' }, 202)
+        }
+
+        if (String(url).includes('/api/v0/messages/hash-p1') && !init?.method) {
+          return jsonResponse({ status: 'processed', details: {} })
+        }
+
+        if (String(url).includes('/api/v0/messages/hash-p3') && !init?.method) {
+          return jsonResponse({ status: 'processed', details: {} })
+        }
+
+        if (String(url).includes('scheduler.api.aleph.cloud')) {
+          return jsonResponse({
+            node: {
+              node_id: 'crn-b',
+              url: 'https://crn-b.example.com'
+            }
+          })
+        }
+
+        if (String(url).includes('api.2n6.me')) {
+          return jsonResponse({ url: 'https://relay.example.com', active: true })
+        }
+
+        if (String(url).includes('/v2/about/executions/list')) {
+          if (String(url).includes('hash-p1')) {
+            return jsonResponse({
+              'hash-p1': {
+                networking: {
+                  host_ipv4: null,
+                  mapped_ports: {}
+                }
+              }
+            })
+          }
+
+          return jsonResponse({
+            'hash-p3': {
+              networking: {
+                host_ipv4: '203.0.113.21',
+                mapped_ports: {
+                  '22': { host: 32222, tcp: true, udp: false }
+                }
+              }
+            }
+          })
+        }
+
+        return jsonResponse({ status: 'processed', message: { type: 'STORE' } })
+      }
+    }
+  )
+
+  assert.equal(result.itemHash, 'hash-p3')
+  assert.equal(result.selectedCrn?.hash, 'crn-b')
+  assert.equal(result.runtime?.hostIpv4, '203.0.113.21')
+
+  const forgetBodies = postedBodies.filter((body) => body.includes('"type":"FORGET"'))
+  assert.equal(forgetBodies.length, 1)
+  assert.match(forgetBodies[0], /hash-p1/)
+
+  const instanceBodies = postedBodies.filter((body) => body.includes('"type":"INSTANCE"'))
+  assert.equal(instanceBodies.length, 2)
+})
+
 test('executeDeployPlan configures orbitdb relay pinner after mapped ports appear', async () => {
   const configureBodies: string[] = []
   const result = await executeDeployPlan(
