@@ -9,6 +9,7 @@ import type {
 } from '@le-space/shared-types'
 
 import { broadcastAlephMessage } from './broadcast.ts'
+import { extractInsufficientBalanceMessage } from './aleph-normalizers.ts'
 import { DEFAULT_ALEPH_CHANNEL } from './constants.ts'
 export const SSH_PUBLIC_KEY_PATTERN =
   /^(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256|ecdsa-sha2-nistp384|ecdsa-sha2-nistp521|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]+={0,3}(?:\s+.+)?$/
@@ -110,6 +111,16 @@ export function buildPaymentQuote<TTier extends { compute_units: number }>(
 export function quoteRequiredBudgetUnits(quote: PaymentQuote | null): bigint {
   if (!quote) return 0n
   return BigInt(Math.ceil(quote.required * 1_000_000_000_000_000_000))
+}
+
+function describeRejectedInstanceBroadcast(response: { details?: unknown; error_code?: unknown }): string {
+  const balanceMessage = extractInsufficientBalanceMessage(response.details)
+  if (balanceMessage) {
+    return `Aleph rejected this deployment due to ${balanceMessage}.`
+  }
+
+  const errorCode = typeof response.error_code === 'number' ? response.error_code : null
+  return `Aleph rejected this deployment${errorCode ? ` (error ${errorCode})` : ''}.`
 }
 
 export function createInstanceContent(args: {
@@ -314,9 +325,9 @@ export async function deployInstance(args: {
           : 'Deployment submitted to Aleph',
     progress: status === 'processed' ? 88 : status === 'rejected' ? 100 : 78,
     status: status === 'processed' ? 'success' : status === 'rejected' ? 'error' : 'warning',
-    detail: status === 'rejected' ? String(response.details ?? 'Aleph rejected this deployment.') : null,
+    detail: status === 'rejected' ? describeRejectedInstanceBroadcast(response) : null,
     itemHash: message.item_hash,
-    error: status === 'rejected' ? String(response.details ?? 'Aleph rejected this deployment.') : null,
+    error: status === 'rejected' ? describeRejectedInstanceBroadcast(response) : null,
     timestamp: Date.now()
   })
 
@@ -326,6 +337,6 @@ export async function deployInstance(args: {
     status,
     message,
     response,
-    rejectionReason: status === 'rejected' ? String(response.details ?? 'Aleph rejected this deployment.') : null
+    rejectionReason: status === 'rejected' ? describeRejectedInstanceBroadcast(response) : null
   }
 }

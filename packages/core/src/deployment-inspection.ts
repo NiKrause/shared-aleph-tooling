@@ -7,6 +7,7 @@ import type {
 import { DEFAULT_ALEPH_API_HOST, type FetchLike } from './manifests.ts'
 import {
   describeRejectedDeployment,
+  extractInsufficientBalanceMessage,
   extractReferenceHashes,
   messageTypeFromEnvelope,
   normalizeMessageStatus
@@ -19,19 +20,6 @@ type MessageEnvelope = {
   details?: unknown
   message?: { type?: unknown } | null
   messages?: Array<{ type?: unknown }> | null
-}
-
-function insufficientBalanceMessage(details: Record<string, unknown> | null): string | null {
-  const firstError =
-    details && Array.isArray(details.errors) && details.errors[0] && typeof details.errors[0] === 'object'
-      ? (details.errors[0] as Record<string, unknown>)
-      : null
-  const accountBalance = firstError?.account_balance
-  const requiredBalance = firstError?.required_balance
-  if (accountBalance != null && requiredBalance != null) {
-    return `insufficient Aleph balance: account has ${accountBalance}, required is ${requiredBalance}`
-  }
-  return null
 }
 
 export async function fetchMessageEnvelope(
@@ -76,7 +64,7 @@ export async function inspectMessageResult(
   let rejectionReason = null
 
   if (status === 'rejected') {
-    const balanceMessage = errorCode === 5 ? insufficientBalanceMessage(details) : null
+    const balanceMessage = extractInsufficientBalanceMessage(details)
     rejectionReason = balanceMessage
       ? `${label} ${itemHash} was rejected by Aleph due to ${balanceMessage}.`
       : `${label} ${itemHash} was rejected by Aleph${errorCode ? ` (error ${errorCode})` : ''}.`

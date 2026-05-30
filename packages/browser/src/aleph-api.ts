@@ -457,6 +457,34 @@ function extractReferenceHashes(details: unknown): string[] {
   return errors.filter((value): value is string => typeof value === 'string')
 }
 
+function extractInsufficientBalanceMessage(details: unknown): string | null {
+  if (!details || typeof details !== 'object' || !('errors' in details)) return null
+
+  const errors = (details as { errors?: unknown }).errors
+  const firstError =
+    Array.isArray(errors) && errors[0] && typeof errors[0] === 'object'
+      ? (errors[0] as Record<string, unknown>)
+      : null
+
+  const accountBalance =
+    typeof firstError?.account_balance === 'number' || typeof firstError?.account_balance === 'string'
+      ? Number(firstError.account_balance)
+      : Number.NaN
+  const requiredBalance =
+    typeof firstError?.required_balance === 'number' || typeof firstError?.required_balance === 'string'
+      ? Number(firstError.required_balance)
+      : Number.NaN
+
+  if (!Number.isFinite(accountBalance) || !Number.isFinite(requiredBalance)) {
+    return null
+  }
+
+  const shortfall = requiredBalance - accountBalance
+  return shortfall > 0
+    ? `insufficient Aleph balance: ${accountBalance.toFixed(3)} available, ${requiredBalance.toFixed(3)} required, ${shortfall.toFixed(3)} short`
+    : `insufficient Aleph balance: ${accountBalance.toFixed(3)} available, ${requiredBalance.toFixed(3)} required`
+}
+
 function describeRejectedDeployment(
   payload: AlephMessageEnvelope,
   references: MessageReference[],
@@ -477,6 +505,11 @@ function describeRejectedDeployment(
 
   if (missingReferences.length > 0) {
     return `Aleph rejected this deployment because referenced message(s) were not found on Aleph: ${missingReferences.map((reference) => reference.itemHash).join(', ')}.`
+  }
+
+  const insufficientBalanceMessage = extractInsufficientBalanceMessage(payload.details)
+  if (insufficientBalanceMessage) {
+    return `Aleph rejected this deployment due to ${insufficientBalanceMessage}.`
   }
 
   const referencedHashes = extractReferenceHashes(payload.details)

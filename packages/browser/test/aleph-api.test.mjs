@@ -577,6 +577,36 @@ test('inspectDeploymentResult resolves related references and rejection reason',
   }
 })
 
+test('inspectDeploymentResult explains insufficient balance rejections even for error 6', async () => {
+  const originalFetch = globalThis.fetch
+
+  try {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          status: 'rejected',
+          error_code: 6,
+          details: {
+            errors: [
+              {
+                account_balance: 0,
+                required_balance: 14250
+              }
+            ]
+          }
+        }),
+        { status: 200 }
+      )
+
+    const result = await inspectDeploymentResult('a'.repeat(64))
+    assert.equal(result.status, 'rejected')
+    assert.match(result.rejectionReason ?? '', /insufficient Aleph balance/i)
+    assert.match(result.rejectionReason ?? '', /14250\.000 required/i)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('waitForDeploymentResult polls until the message reaches a terminal state', async () => {
   const originalFetch = globalThis.fetch
   const originalSetTimeout = globalThis.setTimeout

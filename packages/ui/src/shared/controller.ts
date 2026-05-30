@@ -35,6 +35,7 @@ import {
   DEFAULT_TIER_ID,
   DEPLOYMENT_PENDING_WARNING_MS,
   IDLE_DEPLOYMENT_PROGRESS,
+  MANIFEST_SOURCE_REFRESH_DEBOUNCE_MS,
   RECENT_INSTANCE_RUNTIME_GRACE_MS,
   REFRESH_INTERVAL_MS,
   RELAY_PING_IDLE_STATE,
@@ -79,7 +80,7 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
     instanceName: props.instanceName ?? DEFAULT_INSTANCE_NAME,
     tierId: DEFAULT_TIER_ID,
     showInstances: props.showInstances ?? true,
-    showPasteManifest: false,
+    showPasteManifest: Boolean(props.manifestJson?.trim()),
     busy: {
       connectingWallet: false,
       refreshing: false,
@@ -511,6 +512,7 @@ export class SponsorRelayController {
   private client: ReturnType<typeof createAlephBrowserClient>;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private manifestRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopWalletWatch: (() => void) | null = null;
   private props: SponsorRelayProps;
   private progressEmitter = createDeploymentProgressEmitter();
@@ -1012,6 +1014,7 @@ export class SponsorRelayController {
   destroy(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.manifestRefreshTimer) clearTimeout(this.manifestRefreshTimer);
     this.stopWalletWatch?.();
   }
 
@@ -1025,10 +1028,15 @@ export class SponsorRelayController {
 
   setManifestUrl(manifestUrl: string): void {
     this.patch({ manifestUrl });
+    this.queueManifestRefresh();
   }
 
   setManifestJson(manifestJson: string): void {
-    this.patch({ manifestJson });
+    this.patch({
+      manifestJson,
+      showPasteManifest: this.state.showPasteManifest || Boolean(manifestJson.trim()),
+    });
+    this.queueManifestRefresh();
   }
 
   setShowPasteManifest(showPasteManifest: boolean): void {
@@ -1082,6 +1090,23 @@ export class SponsorRelayController {
       },
       selectedCrn,
     });
+  }
+
+  private queueManifestRefresh(): void {
+    if (!this.state.ready) {
+      return;
+    }
+
+    if (this.manifestRefreshTimer) {
+      clearTimeout(this.manifestRefreshTimer);
+    }
+
+    // Debounce manifest-source updates so paste actions feel immediate
+    // without triggering a full refresh for every individual keystroke.
+    this.manifestRefreshTimer = setTimeout(() => {
+      this.manifestRefreshTimer = null;
+      void this.refresh();
+    }, MANIFEST_SOURCE_REFRESH_DEBOUNCE_MS);
   }
 
   async connectWallet(): Promise<void> {
