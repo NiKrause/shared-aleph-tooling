@@ -51,6 +51,12 @@ export interface DeployExecutorDependencies {
   log?: (message: string) => void;
 }
 
+type AlephBalanceSnapshot = {
+  balance?: unknown;
+  credit_balance?: unknown;
+  locked_amount?: unknown;
+};
+
 function defaultHasher(payload: string): string {
   return createHash("sha256").update(payload).digest("hex");
 }
@@ -117,6 +123,47 @@ function mergeVerificationState(args: {
     rejectionReason: args.inspection.rejectionReason,
     references: args.inspection.references,
   };
+}
+
+function describeBalanceSnapshot(snapshot: AlephBalanceSnapshot): string {
+  return [
+    `balance=${snapshot.balance ?? "-"}`,
+    `credit_balance=${snapshot.credit_balance ?? "-"}`,
+    `locked_amount=${snapshot.locked_amount ?? "-"}`,
+  ].join(" ");
+}
+
+async function logBalancePreflight(args: {
+  address: string;
+  apiHost: string;
+  fetch: typeof fetch;
+  log: (message: string) => void;
+}): Promise<void> {
+  try {
+    const response = await args.fetch(
+      `${args.apiHost}/api/v0/addresses/${args.address}/balance`,
+      { cache: "no-cache" },
+    );
+    if (!response.ok) {
+      args.log(
+        `[deploy] balance preflight lookup failed: status=${response.status}`,
+      );
+      return;
+    }
+
+    const snapshot = (await response.json()) as AlephBalanceSnapshot;
+    args.log(
+      `[deploy] preflight balance for ${args.address}: ${describeBalanceSnapshot(
+        snapshot,
+      )}`,
+    );
+  } catch (error) {
+    args.log(
+      `[deploy] balance preflight lookup failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 }
 
 async function candidateCrnsForPlan(
@@ -201,6 +248,13 @@ export async function executeDeployPlan(
   }
 
   log(`[deploy] profile=${plan.profile} sender=${identity.address}`);
+  log(`[deploy] channel=${plan.channel} api_host=${plan.apiHost}`);
+  await logBalancePreflight({
+    address: identity.address,
+    apiHost: plan.apiHost,
+    fetch: fetchImpl,
+    log,
+  });
   log(
     `[deploy] candidate CRNs=${candidateCrns
       .map((crn) => `${crn.name ?? crn.hash}:${crn.hash}`)
@@ -259,6 +313,13 @@ export async function executeDeployPlan(
     });
 
     if (inspection.status === "rejected") {
+      if (inspection.details) {
+        log(
+          `[deploy] raw rejection details for ${deployment.itemHash}: ${JSON.stringify(
+            inspection.details,
+          )}`,
+        );
+      }
       log(
         `[deploy] CRN ${candidateCrn.name ?? candidateCrn.hash} rejected deployment ${deployment.itemHash}: ${
           inspection.rejectionReason ?? "no additional reason"

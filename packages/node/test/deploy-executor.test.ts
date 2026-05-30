@@ -193,6 +193,7 @@ test('executeDeployPlan deploys, publishes port forwards, and waits for processi
 
 test('executeDeployPlan retries on a rejected first CRN and succeeds on the next candidate', async () => {
   let messageCount = 0
+  const logs: string[] = []
   const result = await executeDeployPlan(
     {
       ...DEPLOY_PLAN,
@@ -203,6 +204,9 @@ test('executeDeployPlan retries on a rejected first CRN and succeeds on the next
     },
     {
       sender: '0x1234',
+      log: (message) => {
+        logs.push(message)
+      },
       signer: async () => '0xsigned',
       hasher: (() => {
         let count = 0
@@ -220,13 +224,32 @@ test('executeDeployPlan retries on a rejected first CRN and succeeds on the next
           })
         }
 
+        if (String(url).includes('/api/v0/addresses/0x1234/balance')) {
+          return jsonResponse({
+            balance: '12.5',
+            credit_balance: 7.25,
+            locked_amount: '1.5'
+          })
+        }
+
         if (String(url).includes('/api/v0/messages') && init?.method === 'POST') {
           messageCount += 1
           return jsonResponse({ message_status: 'pending' }, 202)
         }
 
         if (String(url).includes('/api/v0/messages/hash-r1') && !init?.method) {
-          return jsonResponse({ status: 'rejected', error_code: 42, details: {} })
+          return jsonResponse({
+            status: 'rejected',
+            error_code: 42,
+            details: {
+              errors: [
+                {
+                  account_balance: 0,
+                  required_balance: 14250
+                }
+              ]
+            }
+          })
         }
 
         if (String(url).includes('/api/v0/messages/hash-r2') && !init?.method) {
@@ -267,6 +290,9 @@ test('executeDeployPlan retries on a rejected first CRN and succeeds on the next
   assert.equal(result.itemHash, 'hash-r2')
   assert.equal(result.selectedCrn?.hash, 'crn-b')
   assert.equal(messageCount, 2)
+  assert.ok(logs.some((entry) => entry.includes('preflight balance for 0x1234: balance=12.5 credit_balance=7.25 locked_amount=1.5')))
+  assert.ok(logs.some((entry) => entry.includes('raw rejection details for hash-r1')))
+  assert.ok(logs.some((entry) => entry.includes('insufficient Aleph balance')))
 })
 
 test('executeDeployPlan retries on the next CRN when a processed deployment never exposes runtime networking', async () => {
