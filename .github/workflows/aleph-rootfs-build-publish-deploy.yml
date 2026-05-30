@@ -165,39 +165,6 @@ jobs:
             squashfs-tools \
             tar
 
-      - name: Install aleph client
-        if: ${{ inputs.publish }}
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install aleph-client
-          python3 -m pip install pycares==4.11.0
-
-      - name: Prepare Aleph account
-        if: ${{ inputs.publish }}
-        env:
-          ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
-        run: |
-          mkdir -p "$HOME/.aleph-im/private-keys"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
-          if private_key.startswith("0x"):
-              private_key = private_key[2:]
-
-          key_bytes = bytes.fromhex(private_key)
-          config_home = Path.home() / ".aleph-im"
-          key_path = config_home / "private-keys" / "aleph-vm.key"
-          config_path = config_home / "config.json"
-
-          key_path.write_bytes(key_bytes)
-          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
-          print(f"Wrote Aleph key to {key_path}")
-          print(f"Wrote Aleph config to {config_path}")
-          PY
-
       - name: Run shared rootfs publish pipeline
         id: run_rootfs
         working-directory: ${{ inputs.tooling_checkout_path }}
@@ -230,7 +197,7 @@ jobs:
 
       - name: Upload rootfs workspace artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rootfs-${{ inputs.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: ignore
