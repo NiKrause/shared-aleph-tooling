@@ -46,7 +46,7 @@ test('inspectMessageResult explains rejected balance errors', async () => {
       async json() {
         return {
           status: 'rejected',
-          error_code: 5,
+          error_code: 6,
           details: {
             errors: [
               {
@@ -62,6 +62,7 @@ test('inspectMessageResult explains rejected balance errors', async () => {
 
   assert.equal(result.status, 'rejected')
   assert.match(result.rejectionReason ?? '', /insufficient Aleph balance/i)
+  assert.match(result.rejectionReason ?? '', /2\.000 short/i)
 })
 
 test('inspectDeploymentResult loads related references and explains rejected rootfs dependencies', async () => {

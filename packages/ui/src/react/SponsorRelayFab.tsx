@@ -686,7 +686,7 @@ export function SponsorRelayFab(props: SponsorRelayProps) {
                 }
                 placeholder="SSH public key"
               />
-              <details>
+              <details open={state.showPasteManifest}>
                 <summary>Paste Manifest</summary>
                 <textarea
                   style={{ ...fieldStyle, marginTop: "0.65rem" }}

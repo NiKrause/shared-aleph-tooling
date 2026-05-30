@@ -134,6 +134,13 @@ jobs:
         working-directory: ${{ inputs.tooling_checkout_path }}
         run: pnpm install --frozen-lockfile
 
+      - name: Build caller project artifacts required by the rootfs profile
+        if: ${{ inputs.profile == 'orbitdb-relay-pinner' }}
+        working-directory: ${{ inputs.project_checkout_path }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - name: Validate shared workflow inputs
         run: |
           if [[ "${{ inputs.deploy_vm }}" == "true" ]]; then
@@ -158,39 +165,6 @@ jobs:
             squashfs-tools \
             tar
 
-      - name: Install aleph client
-        if: ${{ inputs.publish }}
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install aleph-client
-          python3 -m pip install pycares==4.11.0
-
-      - name: Prepare Aleph account
-        if: ${{ inputs.publish }}
-        env:
-          ALEPH_PRIVATE_KEY: ${{ secrets.ALEPH_PRIVATE_KEY }}
-        run: |
-          mkdir -p "$HOME/.aleph-im/private-keys"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          private_key = os.environ["ALEPH_PRIVATE_KEY"].strip()
-          if private_key.startswith("0x"):
-              private_key = private_key[2:]
-
-          key_bytes = bytes.fromhex(private_key)
-          config_home = Path.home() / ".aleph-im"
-          key_path = config_home / "private-keys" / "aleph-vm.key"
-          config_path = config_home / "config.json"
-
-          key_path.write_bytes(key_bytes)
-          config_path.write_text(json.dumps({"chain": "ETH", "path": str(key_path)}))
-          print(f"Wrote Aleph key to {key_path}")
-          print(f"Wrote Aleph config to {config_path}")
-          PY
-
       - name: Run shared rootfs publish pipeline
         id: run_rootfs
         working-directory: ${{ inputs.tooling_checkout_path }}
@@ -199,11 +173,21 @@ jobs:
           ALEPH_ROOTFS_PROJECT_DIR: ${{ github.workspace }}/${{ inputs.project_checkout_path }}
           ALEPH_ROOTFS_CONTRACT_PATH: ${{ github.workspace }}/${{ inputs.project_checkout_path }}/${{ inputs.rootfs_contract_path }}
           ALEPH_ROOTFS_REFERENCE_ROOTFS_DIR: ${{ github.workspace }}/${{ inputs.tooling_checkout_path }}/packages/rootfs/reference/${{ inputs.profile }}/rootfs
+          ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR: ${{ inputs.profile == 'orbitdb-relay-pinner' && format('{0}/{1}', github.workspace, inputs.project_checkout_path) || '' }}
           ALEPH_ROOTFS_DRIVER: ${{ inputs.rootfs_driver }}
           ALEPH_ROOTFS_VERSION: ${{ inputs.rootfs_version }}
           ALEPH_ROOTFS_SKIP_UPLOAD: ${{ inputs.publish && 'false' || 'true' }}
         run: |
-          node ./packages/node/src/rootfs-runner.ts
+          if [[ "${{ inputs.publish }}" == "true" ]]; then
+            if [[ -n "${{ secrets.ALEPH_PRIVATE_KEY }}" ]]; then
+              echo "ALEPH_PRIVATE_KEY_PRESENT=true" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "ALEPH_PRIVATE_KEY_PRESENT=false" >> "$GITHUB_STEP_SUMMARY"
+              echo "ALEPH_PRIVATE_KEY was not exposed to the reusable workflow runtime." >&2
+              exit 1
+            fi
+          fi
+          ALEPH_PRIVATE_KEY='${{ secrets.ALEPH_PRIVATE_KEY }}' node ./packages/node/src/rootfs-runner.ts
 
       - name: Export rootfs manifest content
         id: export_manifest
@@ -222,7 +206,7 @@ jobs:
 
       - name: Upload rootfs workspace artifacts
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: rootfs-${{ inputs.profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: ignore

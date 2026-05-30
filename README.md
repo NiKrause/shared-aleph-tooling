@@ -29,10 +29,15 @@ Packages use the `@le-space/*` scope.
   - GitHub Actions output and summary handling
 - `@le-space/rootfs`
   RootFS planning, manifests, reference assets, and build helpers.
+- `@le-space/aleph-bootstrap`
+  Aleph-backed relay bootstrap registration and libp2p bootstrap discovery.
 - `@le-space/browser`
   Browser-safe Aleph deployment helpers for PWAs and other browser clients.
   Current scope includes Aleph API polling, RootFS resolution, pricing,
   browser EVM helpers, and prepaid vault protocol helpers.
+- `@le-space/ui`
+  Shared React and Svelte UI components for relay deployment and status flows,
+  including the Sponsor Relay browser integration surface.
 
 ### GitHub Automation
 
@@ -62,6 +67,11 @@ more of these runner modes:
 This keeps Aleph-specific implementation reusable while letting each consumer
 repo control its own workflow structure and product-specific behavior.
 
+Browser-first consumers may also install:
+
+- `@le-space/browser`
+- `@le-space/ui`
+
 ## Typical Responsibilities
 
 Use this repo when you need reusable support for:
@@ -70,6 +80,7 @@ Use this repo when you need reusable support for:
 - creating an Aleph VM instance from a published RootFS
 - configuring and verifying an Aleph-hosted relay
 - publishing a site with deployment-specific relay bootstrap addresses
+- embedding shared relay deployment UI in React or Svelte apps
 - managing retention of older successful Aleph deployments
 
 ## Quick Start
@@ -139,6 +150,21 @@ export ALEPH_ROOTFS_ORBITDB_RELAY_PINNER_DIR=/path/to/orbitdb-relay-pinner
 pnpm aleph rootfs-build
 pnpm aleph rootfs-publish
 ```
+
+If the image build already succeeded but the later Aleph `STORE` publication
+failed, for example due to insufficient Aleph balance, you can retry the
+upload/publication step without rebuilding the qcow2:
+
+```bash
+export ALEPH_ROOTFS_DRIVER=docker
+export ALEPH_ROOTFS_SKIP_BUILD=true
+pnpm aleph rootfs-publish
+```
+
+The runner now auto-detects `docker` / `virt-customize` when those env flags
+are omitted. `ALEPH_ROOTFS_HAS_DOCKER`, `ALEPH_ROOTFS_DOCKER_DAEMON_RUNNING`,
+and `ALEPH_ROOTFS_HAS_VIRT_CUSTOMIZE` are still accepted as manual overrides
+when you need to force or debug toolchain selection.
 
 This CLI is a thin wrapper around the shared Node runners and uses the same
 deployment logic as the shared action/workflow layers.

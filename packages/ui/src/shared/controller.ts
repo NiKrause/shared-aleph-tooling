@@ -13,14 +13,19 @@ import {
 } from "../../../browser/src/index.ts";
 import {
   buildPaymentQuote,
+  configureOrbitdbRelaySetup,
+  configureUcGoPeer,
   createInstanceContent,
   deployInstance as deploySharedInstance,
   ensureInstancePortForwards,
   filterDeployableCrns,
+  fetchUcGoPeerMetadata,
   forgetAlephMessages,
   notifyCrnAllocationWithRetry,
+  publishRelayBootstrapRegistration,
   tierSpec,
   waitForDeploymentResult,
+  waitForSetupEndpoint,
   waitForVmRuntime,
 } from "../../../core/src/index.ts";
 
@@ -30,6 +35,7 @@ import {
   DEFAULT_TIER_ID,
   DEPLOYMENT_PENDING_WARNING_MS,
   IDLE_DEPLOYMENT_PROGRESS,
+  MANIFEST_SOURCE_REFRESH_DEBOUNCE_MS,
   RECENT_INSTANCE_RUNTIME_GRACE_MS,
   REFRESH_INTERVAL_MS,
   RELAY_PING_IDLE_STATE,
@@ -56,6 +62,8 @@ import type {
 } from "../../../shared-types/src/deployment.ts";
 import type { RootfsManifest as SharedRootfsManifest } from "../../../shared-types/src/manifest.ts";
 
+type RelayProfile = "uc-go-peer" | "orbitdb-relay-pinner";
+
 function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
   return {
     ready: false,
@@ -72,7 +80,7 @@ function defaultState(props: SponsorRelayProps = {}): SponsorRelayState {
     instanceName: props.instanceName ?? DEFAULT_INSTANCE_NAME,
     tierId: DEFAULT_TIER_ID,
     showInstances: props.showInstances ?? true,
-    showPasteManifest: false,
+    showPasteManifest: Boolean(props.manifestJson?.trim()),
     busy: {
       connectingWallet: false,
       refreshing: false,
@@ -226,6 +234,16 @@ async function resolveManifest(args: {
   const pasted = resolveManifestSource({ manifestJson: args.manifestJson });
   if (pasted) return pasted;
   return loadRootfsManifest(args.manifestUrl);
+}
+
+function relayProfileForManifest(
+  manifest: RootfsManifest | null | undefined,
+): RelayProfile | null {
+  if (manifest?.profile === "uc-go-peer") return "uc-go-peer";
+  if (manifest?.profile === "orbitdb-relay-pinner") {
+    return "orbitdb-relay-pinner";
+  }
+  return null;
 }
 
 async function inspectInstanceRuntime(args: {
@@ -494,6 +512,7 @@ export class SponsorRelayController {
   private client: ReturnType<typeof createAlephBrowserClient>;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private manifestRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   private stopWalletWatch: (() => void) | null = null;
   private props: SponsorRelayProps;
   private progressEmitter = createDeploymentProgressEmitter();
@@ -596,6 +615,184 @@ export class SponsorRelayController {
           : this.state.errorText,
     });
     this.progressEmitter.emit(nextEvent);
+  }
+
+  private async configureRelayBootstrapRegistration(args: {
+    itemHash: string;
+    runtime: Awaited<ReturnType<typeof waitForVmRuntime>>;
+  }): Promise<void> {
+    const profile = relayProfileForManifest(this.state.manifest);
+    if (!profile) return;
+
+    if (!this.state.wallet.address) {
+      throw new Error("A connected wallet is required to register relay bootstrap addresses.");
+    }
+    if (!args.runtime.hostIpv4) {
+      throw new Error("Relay runtime did not expose a host IPv4 address.");
+    }
+
+    const mappedPorts = args.runtime.mappedPorts ?? {};
+    const setupPort = mappedPorts["80"]?.host ?? null;
+    if (!setupPort) {
+      throw new Error("Relay runtime did not expose the temporary setup endpoint.");
+    }
+
+    this.emitProgress({
+      stage: "deployment-confirmed",
+      label: "Configuring relay",
+      progress: 93,
+      status: "info",
+      itemHash: args.itemHash,
+      detail: "Waiting for the guest setup endpoint before collecting relay metadata.",
+    });
+
+    const setupHealth = await waitForSetupEndpoint({
+      hostIpv4: args.runtime.hostIpv4,
+      setupPort,
+      fetch: (url, init) => fetch(url, init),
+      attempts: 15,
+      delayMs: 4000,
+      httpTimeoutMs: 10000,
+    });
+    if (!setupHealth.ok) {
+      throw new Error(
+        `Relay setup endpoint did not become reachable at http://${args.runtime.hostIpv4}:${setupPort}/health.`,
+      );
+    }
+
+    this.emitProgress({
+      stage: "deployment-confirmed",
+      label: "Applying relay networking",
+      progress: 94,
+      status: "info",
+      itemHash: args.itemHash,
+      detail: "Publishing the host port mapping into the guest relay configuration.",
+    });
+
+    if (profile === "orbitdb-relay-pinner") {
+      const tcpPort = mappedPorts["9091"]?.host ?? 0;
+      const wsPort = mappedPorts["9092"]?.host ?? mappedPorts["443"]?.host ?? 0;
+      if (!tcpPort || !wsPort) {
+        throw new Error("OrbitDB relay runtime is missing required mapped TCP/WS ports.");
+      }
+
+      await configureOrbitdbRelaySetup({
+        hostIpv4: args.runtime.hostIpv4,
+        publicIpv6: args.runtime.ipv6,
+        setupPort,
+        tcpPort,
+        wsPort,
+        proxyUrl: args.runtime.proxyUrl ?? undefined,
+        metricsPort: mappedPorts["9090"]?.host ?? null,
+        metricsHttpsPort: mappedPorts["443"]?.host ?? null,
+        webrtcPort: mappedPorts["9093"]?.host ?? null,
+        quicPort: mappedPorts["9094"]?.host ?? null,
+        fetch: (url, init) => fetch(url, init),
+        timeoutMs: 180000,
+      });
+    } else {
+      await configureUcGoPeer({
+        hostIpv4: args.runtime.hostIpv4,
+        publicIpv6: args.runtime.ipv6,
+        setupPort,
+        tcpPort: mappedPorts["9095"]?.host ?? null,
+        wsPort: mappedPorts["9097"]?.host ?? mappedPorts["9095"]?.host ?? null,
+        udpPort:
+          mappedPorts["9095"]?.udp === true
+            ? (mappedPorts["9095"]?.host ?? null)
+            : null,
+        quicPort:
+          mappedPorts["9095"]?.udp === true
+            ? (mappedPorts["9095"]?.host ?? null)
+            : null,
+        webrtcPort:
+          mappedPorts["9095"]?.udp === true
+            ? (mappedPorts["9095"]?.host ?? null)
+            : null,
+        proxyUrl: args.runtime.proxyUrl ?? undefined,
+        fetch: (url, init) => fetch(url, init),
+        timeoutMs: 180000,
+      });
+    }
+
+    this.emitProgress({
+      stage: "publishing-bootstrap",
+      label: "Reading relay multiaddrs",
+      progress: 95,
+      status: "info",
+      itemHash: args.itemHash,
+      detail: "Waiting for the relay to report its final public multiaddrs.",
+    });
+
+    const metadataResult = await fetchUcGoPeerMetadata({
+      hostIpv4: args.runtime.hostIpv4,
+      setupPort,
+      fetch: (url, init) => fetch(url, init),
+      attempts: 80,
+      delayMs: 3000,
+      timeoutMs: 240000,
+    });
+    const metadata =
+      metadataResult &&
+      typeof metadataResult === "object" &&
+      (metadataResult as { metadata?: unknown }).metadata &&
+      typeof (metadataResult as { metadata?: unknown }).metadata === "object"
+        ? ((metadataResult as { metadata: Record<string, unknown> }).metadata)
+        : null;
+
+    const peerId =
+      typeof metadata?.peer_id === "string" ? metadata.peer_id : null;
+    const probeMultiaddrs = Array.isArray(metadata?.probe_multiaddrs)
+      ? metadata.probe_multiaddrs.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+    const browserBootstrapMultiaddrs = Array.isArray(
+      metadata?.browser_bootstrap_multiaddrs,
+    )
+      ? metadata.browser_bootstrap_multiaddrs.filter(
+          (entry): entry is string => typeof entry === "string",
+        )
+      : [];
+
+    if (!peerId || probeMultiaddrs.length === 0) {
+      throw new Error("Relay metadata did not include a peer ID and public multiaddrs.");
+    }
+
+    this.emitProgress({
+      stage: "publishing-bootstrap",
+      label: "Publishing bootstrap registration",
+      progress: 96,
+      status: "info",
+      itemHash: args.itemHash,
+      detail: "Writing the relay bootstrap registration to Aleph.",
+    });
+
+    const publication = await publishRelayBootstrapRegistration({
+      sender: this.state.wallet.address,
+      signer: personalSign,
+      hasher: sha256Hex,
+      fetch: (url, init) =>
+        fetch(url, init).then(async (response) => ({
+          ok: response.ok,
+          status: response.status,
+          json: async () => await response.json(),
+        })),
+      apiHost: this.client.apiHost,
+      peerId,
+      multiaddrs: probeMultiaddrs,
+      browserMultiaddrs: browserBootstrapMultiaddrs,
+      profile,
+      version: this.state.manifest?.version,
+      sync: true,
+    });
+
+    this.trace("deploy:bootstrap-registration", {
+      itemHash: args.itemHash,
+      peerId,
+      metadata,
+      publication,
+    });
   }
 
   private syncLatestDeploymentProgress(
@@ -817,6 +1014,7 @@ export class SponsorRelayController {
   destroy(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
     if (this.pingTimer) clearInterval(this.pingTimer);
+    if (this.manifestRefreshTimer) clearTimeout(this.manifestRefreshTimer);
     this.stopWalletWatch?.();
   }
 
@@ -830,10 +1028,15 @@ export class SponsorRelayController {
 
   setManifestUrl(manifestUrl: string): void {
     this.patch({ manifestUrl });
+    this.queueManifestRefresh();
   }
 
   setManifestJson(manifestJson: string): void {
-    this.patch({ manifestJson });
+    this.patch({
+      manifestJson,
+      showPasteManifest: this.state.showPasteManifest || Boolean(manifestJson.trim()),
+    });
+    this.queueManifestRefresh();
   }
 
   setShowPasteManifest(showPasteManifest: boolean): void {
@@ -887,6 +1090,23 @@ export class SponsorRelayController {
       },
       selectedCrn,
     });
+  }
+
+  private queueManifestRefresh(): void {
+    if (!this.state.ready) {
+      return;
+    }
+
+    if (this.manifestRefreshTimer) {
+      clearTimeout(this.manifestRefreshTimer);
+    }
+
+    // Debounce manifest-source updates so paste actions feel immediate
+    // without triggering a full refresh for every individual keystroke.
+    this.manifestRefreshTimer = setTimeout(() => {
+      this.manifestRefreshTimer = null;
+      void this.refresh();
+    }, MANIFEST_SOURCE_REFRESH_DEBOUNCE_MS);
   }
 
   async connectWallet(): Promise<void> {
@@ -1358,6 +1578,11 @@ export class SponsorRelayController {
             : runtimeMappedPorts(runtime.mappedPorts),
         execution: runtime.execution ?? null,
         error: null,
+      });
+
+      await this.configureRelayBootstrapRegistration({
+        itemHash: result.itemHash,
+        runtime,
       });
 
       this.patch({

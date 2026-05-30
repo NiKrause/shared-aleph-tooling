@@ -11,6 +11,8 @@ PY_LIBP2P_DIR="${PY_LIBP2P_DIR:-${REPO_DIR}/py-libp2p}"
 ORBITDB_RELAY_PINNER_DIR="${ORBITDB_RELAY_PINNER_DIR:-}"
 UNIVERSAL_CONNECTIVITY_DIR="${UNIVERSAL_CONNECTIVITY_DIR:-}"
 OUT_DIR="${OUT_DIR:-${APP_DIR}/dist-rootfs}"
+HOST_UID="${HOST_UID:-}"
+HOST_GID="${HOST_GID:-}"
 BASE_URL="${BASE_URL:-https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2}"
 BASE_IMAGE="${OUT_DIR}/debian-12-genericcloud-amd64.qcow2"
 IMAGE_SIZE="${IMAGE_SIZE:-${ROOTFS_IMAGE_SIZE:-20G}}"
@@ -224,15 +226,19 @@ case "${ROOTFS_PROFILE}" in
       --copy-in "${APP_TAR}:/opt"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap.sh:/usr/local/sbin"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-configure.sh:/usr/local/sbin"
+      --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap-refresh.py:/usr/local/sbin"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-autotls-refresh.py:/usr/local/sbin"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-setup-server.py:/usr/local/sbin"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-describe.py:/usr/local/sbin"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap.service:/etc/systemd/system"
+      --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap-refresh.service:/etc/systemd/system"
+      --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap-refresh.timer:/etc/systemd/system"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-autotls-refresh.service:/etc/systemd/system"
       --copy-in "${SCRIPT_DIR}/orbitdb-relay-pinner-bootstrap.conf:/etc/systemd/system/orbitdb-relay-pinner.service.d"
       --run-command "tar -xf /opt/$(basename "${APP_TAR}") -C /opt/orbitdb-relay-pinner"
       --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-bootstrap.sh"
       --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-configure.sh"
+      --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-bootstrap-refresh.py"
       --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-autotls-refresh.py"
       --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-setup-server.py"
       --run-command "chmod 0755 /usr/local/sbin/orbitdb-relay-pinner-describe.py"
@@ -333,3 +339,7 @@ if [ "${ROOTFS_SPARSIFY}" = "1" ] && command -v virt-sparsify >/dev/null 2>&1; t
 fi
 
 echo "Rootfs image ready at ${IMAGE}"
+
+if [ -n "${HOST_UID}" ] && [ -n "${HOST_GID}" ]; then
+  chown -R "${HOST_UID}:${HOST_GID}" "${OUT_DIR}"
+fi
